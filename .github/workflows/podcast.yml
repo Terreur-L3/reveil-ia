@@ -1,0 +1,52 @@
+name: Podcast du matin
+
+on:
+  schedule:
+    - cron: "30 3 * * *"   # 03:30 UTC = 05:30 l'été / 04:30 l'hiver (heure de Paris)
+  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+
+permissions:
+  contents: write           # pour publier le résultat sur la branche « podcast »
+
+concurrency:
+  group: podcast
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Installer les dépendances
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt
+
+      - name: Générer le podcast
+        id: gen
+        continue-on-error: true   # on publie quand même le texte si seul l'audio a raté
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: .venv/bin/python -m src.main
+
+      - name: Publier sur la branche « podcast » (sans accumuler d'historique)
+        run: |
+          if ls output/latest.* >/dev/null 2>&1; then
+            cd output
+            git init -q -b podcast
+            git config user.name "podcast-bot"
+            git config user.email "podcast-bot@users.noreply.github.com"
+            git add -A
+            git commit -q -m "Podcast du $(date -u +%F)"
+            git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" podcast
+          else
+            echo "::warning::Rien à publier"
+          fi
+
+      - name: Signaler l'échec éventuel
+        if: steps.gen.outcome == 'failure'
+        run: |
+          echo "::error::La génération a échoué : regarde l'étape « Générer le podcast »."
+          exit 1

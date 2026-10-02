@@ -1,0 +1,35 @@
+# ===== Réglages du podcast du matin =====
+# Modifie ce fichier pour personnaliser. Rien de secret ici :
+# les clés vont dans les « Secrets » GitHub (ou dans un fichier .env en local).
+
+prenom: ""           # prénom dit dans le bonjour (laisse vide pour un simple « Bonjour »)
+fuseau: "Europe/Paris"
+mots_cibles: 300     # ≈ 2 minutes à l'oral (environ 150 mots par minute)
+
+llm:
+  # Essayés dans l'ordre jusqu'à ce que l'un réponde (tous ont une offre gratuite).
+  modeles:
+    - gemini-3-flash-preview
+    - gemini-3.1-flash-lite
+    - gemini-flash-latest
+    - gemini-2.5-flash     # dernier recours : Google doit l'arrêter mi-octobre 2026
+  temperature: 0.7
+
+actu:
+  age_max_heures: 36     # ignore les articles plus vieux que ça
+  max_par_flux: 6
+  max_total: 24
+  flux:                  # ajoute / retire des lignes pour changer tes sujets
+    - nom: franceinfo
+      url: https://www.francetvinfo.fr/titres.rss
+    - nom: Le Monde
+      url: https://www.lemonde.fr/rss/une.xml
+    - nom: Numerama
+      url: https://www.numerama.com/feed/
+
+voix:
+  moteur: edge
+  # Autres voix à tester : fr-FR-DeniseNeural, fr-FR-RemyMultilingualNeural,
+  # fr-FR-VivienneMultilingualNeural
+  edge_voix: fr-FR-HenriNeural
+  vitesse: "+0%"         # ex. "+10%" pour parler plus vite, "-10%" plus lentement
