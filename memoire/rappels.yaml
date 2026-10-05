@@ -1,0 +1,8 @@
+# Rappels datés, dits dans le podcast 3 jours avant, la veille et le jour même.
+# Tu peux aussi les dire à voix haute dans Telegram (« vendredi, je dois rendre mon dossier »).
+#
+# Exemple (enlève le # devant chaque ligne et supprime les [] plus bas) :
+# - texte: "rendre le dossier de montage"
+#   date: 2026-10-16
+#   prevenir: [5, 2, 1, 0]   # facultatif : jours d'avance pour CE rappel
+[]

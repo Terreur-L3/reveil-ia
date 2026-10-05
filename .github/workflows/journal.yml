@@ -1,0 +1,75 @@
+name: Journal vocal
+
+# Toutes les 30 minutes dans la journée : lit ta conversation Telegram, transcrit les vocaux,
+# range ce que tu as dit dans memoire/ (puis l'enregistre dans le dépôt) et pose la question « Inspi ».
+# GitHub peut retarder ou sauter une exécution planifiée quand ses serveurs sont chargés : compte
+# plutôt « dans l'heure » que « à la minute ». Pour lancer tout de suite : onglet Actions → Journal vocal → Run workflow.
+
+on:
+  schedule:
+    - cron: "7,37 5-21 * * *"   # UTC : de ~07 h à ~23 h en été, ~06 h à ~22 h en hiver (heure de Paris)
+  workflow_dispatch:
+    inputs:
+      inspi:
+        description: "Poser une question tout de suite (comme le bouton 💡 Inspi)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write            # pour enregistrer memoire/ dans le dépôt
+
+concurrency:
+  group: journal             # jamais deux passages en même temps (ils écriraient la même mémoire)
+  cancel-in-progress: false
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Installer les dépendances
+        id: install
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt
+
+      - name: Lire Telegram, transcrire, ranger, poser la question
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INSPI: ${{ inputs.inspi }}
+        run: |
+          if [ "$INSPI" = "true" ]; then
+            .venv/bin/python -m src.journal --inspi
+          else
+            .venv/bin/python -m src.journal
+          fi
+
+      # Même si l'étape précédente a échoué ou s'est arrêtée à temps : ce qui est déjà rangé est gardé.
+      - name: Enregistrer la mémoire dans le dépôt
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          git config user.name "journal-bot"
+          git config user.email "journal-bot@users.noreply.github.com"
+          git add -A memoire
+          if git diff --cached --quiet; then
+            echo "Rien de nouveau dans la mémoire."
+            exit 0
+          fi
+          git commit -q -m "Mémoire du journal ($(date -u '+%F %H:%M') UTC)"
+          for essai in 1 2 3 4 5; do
+            if git push -q origin HEAD; then
+              echo "Mémoire enregistrée."
+              exit 0
+            fi
+            echo "Push refusé (essai $essai/5) : je récupère les nouveautés du dépôt puis je réessaie."
+            if ! git pull --rebase -q origin "$(git rev-parse --abbrev-ref HEAD)"; then
+              git rebase --abort 2>/dev/null || true
+            fi
+            sleep $((essai * 4))
+          done
+          echo "::error::Impossible d'enregistrer la mémoire dans le dépôt (conflit ?). Regarde le README, section « Si ça coince »."
+          exit 1

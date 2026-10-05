@@ -1,0 +1,10 @@
+# Anniversaires à souhaiter. Le podcast en parle 7 jours avant, la veille et le jour même.
+# Tu peux aussi les dire à voix haute dans Telegram : ils s'ajoutent tout seuls
+# (fichier anniversaires_auto.yaml). Ce fichier-ci, écrit à la main, a toujours priorité.
+#
+# Exemple (enlève le # devant chaque ligne et supprime les [] plus bas) :
+# - nom: Maman
+#   jour: 14
+#   mois: 3
+#   annee: 1972      # facultatif : sert à dire l'âge
+[]

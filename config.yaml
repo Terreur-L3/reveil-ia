@@ -1,35 +1,97 @@
-# ===== Réglages du podcast du matin =====
+# ===== Réglages du réveil IA =====
 # Modifie ce fichier pour personnaliser. Rien de secret ici :
 # les clés vont dans les « Secrets » GitHub (ou dans un fichier .env en local).
+# Ce qui parle de TOI (prénom, centres d'intérêt, sujets à éviter) est dans moi.yaml.
 
-prenom: ""           # prénom dit dans le bonjour (laisse vide pour un simple « Bonjour »)
+prenom: ""           # prénom dit dans le bonjour (moi.yaml l'emporte s'il y est rempli)
 fuseau: "Europe/Paris"
 mots_cibles: 300     # ≈ 2 minutes à l'oral (environ 150 mots par minute)
 
+# ----- Les IA, essayées dans l'ordre jusqu'à ce que l'une réponde (toutes ont une offre gratuite) -----
+# Règle de confidentialité : tout ce qui vient de TA vie privée ne passe que par la chaîne « prive »
+# (Groq : pas d'entraînement sur tes données). Gemini (offre gratuite) ne voit que des titres de presse.
 llm:
-  # Essayés dans l'ordre jusqu'à ce que l'un réponde (tous ont une offre gratuite).
-  modeles:
-    - gemini-3-flash-preview
-    - gemini-3.1-flash-lite
-    - gemini-flash-latest
-    - gemini-2.5-flash     # dernier recours : Google doit l'arrêter mi-octobre 2026
   temperature: 0.7
+  tri:            # note les actus (importance / intérêt / ton)
+    - {fournisseur: gemini, modele: gemini-3-flash-preview}
+    - {fournisseur: gemini, modele: gemini-3.1-flash-lite}
+    - {fournisseur: gemini, modele: gemini-flash-latest}
+    - {fournisseur: groq, modele: openai/gpt-oss-120b, extra: {reasoning_effort: low, max_completion_tokens: 3000}}
+  ecriture:       # écrit le texte du podcast (aucune info perso ne lui est envoyée)
+    - {fournisseur: gemini, modele: gemini-3-flash-preview}
+    - {fournisseur: gemini, modele: gemini-3.1-flash-lite}
+    - {fournisseur: gemini, modele: gemini-flash-latest}
+    - {fournisseur: groq, modele: openai/gpt-oss-120b, extra: {reasoning_effort: low, max_completion_tokens: 2500}}
+  prive:          # journal vocal : extraction des infos, questions « Inspi » (Groq uniquement, quotas séparés par modèle)
+    - {fournisseur: groq, modele: openai/gpt-oss-120b, extra: {reasoning_effort: low, max_completion_tokens: 3000}}
+    - {fournisseur: groq, modele: openai/gpt-oss-20b, extra: {reasoning_effort: low, max_completion_tokens: 3000}}
 
+# ----- Choix des sujets : ce qui entre (ou pas) dans les 2 minutes -----
+tri:
+  nb_sujets: 5               # nombre de sujets maximum
+  seuil_importance: 7        # un sujet passe s'il est important (≥ 7 sur 10)…
+  seuil_interet: 7           # …OU s'il t'intéresse beaucoup (≥ 7 sur 10)
+  minimum: 3                 # jour calme : on assouplit les seuils pour avoir au moins ça
+  max_difficiles: 1          # au plus un sujet « difficile » (guerre, drame…) par podcast
+  importance_exception: 9    # …sauf événement majeur (importance ≥ 9) : un de plus
+  max_par_categorie: 2
+  bonus_positif: 1           # les bonnes nouvelles passent devant
+  malus_difficile: 1
+  bonus_couverture: 0.5      # plusieurs journaux en parlent → un peu plus de poids
+
+# ----- Infos perso dites par le programme (jamais envoyées à une IA) -----
+perso:
+  anniversaires_jours_avant: [7, 1, 0]
+  rappels_jours_avant: [3, 1, 0]
+  max_lignes: 4
+
+# ----- Actus (RSS) : ajoute / retire des lignes pour changer tes sources -----
 actu:
-  age_max_heures: 36     # ignore les articles plus vieux que ça
-  max_par_flux: 6
-  max_total: 24
-  flux:                  # ajoute / retire des lignes pour changer tes sujets
-    - nom: franceinfo
-      url: https://www.francetvinfo.fr/titres.rss
-    - nom: Le Monde
-      url: https://www.lemonde.fr/rss/une.xml
-    - nom: Numerama
-      url: https://www.numerama.com/feed/
+  age_max_heures: 36
+  max_par_flux: 4
+  max_total: 55
+  flux:
+    - {nom: franceinfo,        categorie: general,  url: "https://www.francetvinfo.fr/titres.rss"}
+    - {nom: Le Monde,          categorie: general,  url: "https://www.lemonde.fr/rss/une.xml"}
+    - {nom: Futura Sciences,   categorie: sciences, url: "https://www.futura-sciences.com/rss/actualites.xml"}
+    - {nom: Good News Network, categorie: positif,  url: "https://www.goodnewsnetwork.org/feed/"}
+    - {nom: Positive News,     categorie: positif,  url: "https://www.positive.news/feed/"}
+    - {nom: Numerama,          categorie: tech,     url: "https://www.numerama.com/feed/"}
+    - {nom: Next,              categorie: tech,     url: "https://next.ink/feed/"}
+    - {nom: Korben,            categorie: tech,     url: "https://korben.info/feed"}
+    - {nom: No Film School,    categorie: cinema,   url: "https://nofilmschool.com/rss.xml"}
+    - {nom: CineD,             categorie: cinema,   url: "https://www.cined.com/feed/"}
+    - {nom: ProVideo Coalition, categorie: cinema,  url: "https://www.provideocoalition.com/feed/"}
+    - {nom: Blender,           categorie: 3d,       url: "https://www.blender.org/feed/"}
+    - {nom: 80 Level,          categorie: 3d,       url: "https://80.lv/feed/"}
+    - {nom: Road to VR,        categorie: vr,       url: "https://www.roadtovr.com/feed/"}
+    - {nom: UploadVR,          categorie: vr,       url: "https://www.uploadvr.com/rss/"}
+    - {nom: Réalité-Virtuelle, categorie: vr,       url: "https://www.realite-virtuelle.com/feed/"}
+    - {nom: jeuxvideo.com,     categorie: jeux,     url: "https://www.jeuxvideo.com/rss/rss.xml"}
+  # Après chaque podcast, le fichier choix.txt (branche « podcast ») dit quels flux ont répondu :
+  # supprime ceux qui sont « EN ÉCHEC » depuis plusieurs jours.
 
+# ----- Voix du podcast -----
 voix:
   moteur: edge
   # Autres voix à tester : fr-FR-DeniseNeural, fr-FR-RemyMultilingualNeural,
   # fr-FR-VivienneMultilingualNeural
   edge_voix: fr-FR-HenriNeural
   vitesse: "+0%"         # ex. "+10%" pour parler plus vite, "-10%" plus lentement
+
+# ----- Telegram : ta conversation avec ton IA -----
+telegram:
+  envoyer_podcast: true  # le podcast du matin est aussi déposé dans la conversation Telegram
+
+# ----- Journal vocal et mémoire -----
+journal:
+  heure_question: 19     # question du soir pour nourrir ta mémoire (heure locale, 0-23) ; null = jamais
+  question_vocale: true  # la question est aussi dite à voix haute
+  stt_modele: whisper-large-v3-turbo
+  langue: fr
+  morceau_s: 600         # les longs vocaux sont découpés en morceaux de 10 minutes
+  audio_s_par_heure: 6500  # quota gratuit Groq : 7 200 s d'audio par heure (on garde une marge)
+  tpm: 6500              # quota gratuit Groq : 8 000 « tokens » par minute (on garde une marge)
+  fenetre_mots: 1800     # taille des tranches de texte envoyées à l'extraction
+  duree_max_min: 14      # arrêt propre avant la limite de temps du job (le reste attend la fois suivante)
+  min_mots_extraction: 8 # en dessous, on garde le message mais on n'en tire pas d'infos

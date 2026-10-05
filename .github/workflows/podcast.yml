@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5     # récupère aussi memoire/ (anniversaires, rappels, centres d'intérêt appris)
 
       - name: Installer les dépendances
         run: |
@@ -26,9 +26,12 @@ jobs:
 
       - name: Générer le podcast
         id: gen
-        continue-on-error: true   # on publie quand même le texte si seul l'audio a raté
+        continue-on-error: true   # on publie quand même ce qui existe, même si une étape a raté
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: .venv/bin/python -m src.main
 
       - name: Publier sur la branche « podcast » (sans accumuler d'historique)
@@ -45,8 +48,9 @@ jobs:
             echo "::warning::Rien à publier"
           fi
 
-      - name: Signaler l'échec éventuel
+      - name: Signaler un problème (podcast de secours ou échec)
         if: steps.gen.outcome == 'failure'
         run: |
-          echo "::error::La génération a échoué : regarde l'étape « Générer le podcast »."
+          echo "::error::Le podcast n'est pas complet : regarde l'étape « Générer le podcast » (et choix.txt sur la branche podcast)."
+          echo "Code 4 = podcast de secours (sans actus), 3 = pas d'audio, 1 = rien produit."
           exit 1

@@ -1,0 +1,41 @@
+# ===== Toi, pour le podcast =====
+# Ce que tu veux (et ne veux pas) entendre dans les actus.
+#
+# IMPORTANT : la liste « provisoires » ci-dessous a été choisie par Claude au départ, pas par toi.
+# Dès que ton journal vocal (Telegram) a appris au moins 3 de tes centres d'intérêt, cette liste est
+# abandonnée toute seule et le podcast se base sur TA mémoire (fichier memoire/interets.yaml).
+# Le fichier choix.txt (branche « podcast ») dit toujours laquelle des deux est utilisée.
+
+prenom: ""   # dit dans le bonjour, ex. "Léo". Laisse vide pour un simple « Bonjour ».
+
+# Sujets que tu imposes toujours, quoi que dise la mémoire.
+# poids : 1 = un peu, 2 = bien, 3 = passion
+epingles: []
+#  - sujet: "cinéma d'animation"
+#    poids: 3
+
+provisoires:
+  - sujet: "cinéma et image : caméras, optiques, lumière, étalonnage, tournages, festivals"
+    poids: 3
+  - sujet: "3D et effets visuels : Houdini, Blender, moteurs temps réel, rendu"
+    poids: 3
+  - sujet: "réalité virtuelle : casques VR, jeux VR, nouveautés matérielles"
+    poids: 2
+  - sujet: "jeux vidéo, Minecraft et modding"
+    poids: 2
+  - sujet: "intelligence artificielle et nouvelles technologies utiles"
+    poids: 2
+  - sujet: "sciences, espace, santé et découvertes"
+    poids: 1
+
+# Ce qui compte toujours, même hors de tes centres d'intérêt.
+toujours_important:
+  - "événements majeurs qui changent le quotidien en France : transports en Île-de-France, énergie, santé publique, économie du quotidien, vie étudiante"
+  - "grandes avancées scientifiques ou technologiques"
+  - "événements mondiaux majeurs"
+
+# Ce que tu ne veux jamais entendre.
+a_ignorer:
+  - "polémiques et petites phrases politiques sans effet concret"
+  - "faits divers locaux, people, télé-réalité"
+  - "bons plans, promos, codes promo, concours, contenus sponsorisés"
