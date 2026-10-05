@@ -1,17 +1,13 @@
 {
  "version": 1,
- "offset": 176680267,
+ "offset": 176680270,
  "file": [],
- "question_en_attente": {
-  "id": "q20261005-1756",
-  "date": "2026-10-05T17:56:42.542109+02:00",
-  "texte": "Quel est le projet qui te prend le plus de temps ou de tête en ce moment ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "",
  "stt_historique": [
   [
-   1791186730.760973,
-   27.5865
+   1791239740.5528557,
+   42.7465
   ]
  ],
  "extractions": {}

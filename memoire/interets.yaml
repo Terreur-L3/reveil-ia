@@ -2,12 +2,17 @@
 # aime : sujets retenus pour choisir tes actus (poids 1 à 3) ; candidats : mentionnés une fois, pas encore retenus ;
 # evite : sujets dont tu ne veux plus entendre parler. Tu peux corriger ce fichier à la main.
 aime:
-- sujet: chef opérateur
-  mentions: 1
-  intensite: 2
-  derniere: '2026-10-05'
-  poids: 2
 - sujet: compositing
+  mentions: 2
+  intensite: 3
+  derniere: '2026-10-05'
+  poids: 3
+- sujet: 3D facial robotics
+  mentions: 1
+  intensite: 3
+  derniere: '2026-10-05'
+  poids: 3
+- sujet: chef opérateur
   mentions: 1
   intensite: 2
   derniere: '2026-10-05'
