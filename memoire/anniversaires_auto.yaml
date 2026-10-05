@@ -1,0 +1,7 @@
+# Géré automatiquement par ton journal vocal : tu peux corriger ce fichier à la main.
+# Pour qu'un anniversaire soit prioritaire, mets-le plutôt dans anniversaires.yaml.
+- nom: Marius Laian
+  jour: 24
+  mois: 5
+  annee: 2006
+  source: journal 2026-10-05

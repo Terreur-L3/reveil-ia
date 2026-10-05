@@ -1,8 +1,14 @@
 {
  "version": 1,
- "offset": 176680263,
+ "offset": 176680264,
  "file": [],
  "question_en_attente": null,
  "derniere_question_du_soir": "",
- "stt_historique": []
+ "stt_historique": [
+  [
+   1791186730.760973,
+   27.5865
+  ]
+ ],
+ "extractions": {}
 }

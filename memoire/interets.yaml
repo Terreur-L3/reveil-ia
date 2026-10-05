@@ -1,0 +1,6 @@
+# Géré automatiquement par ton journal vocal.
+# aime : sujets retenus pour choisir tes actus (poids 1 à 3) ; candidats : mentionnés une fois, pas encore retenus ;
+# evite : sujets dont tu ne veux plus entendre parler. Tu peux corriger ce fichier à la main.
+aime: []
+candidats: []
+evite: []
