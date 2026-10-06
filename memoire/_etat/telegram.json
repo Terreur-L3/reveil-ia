@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680270,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "",
+ "question_en_attente": {
+  "id": "q20261006-2018",
+  "date": "2026-10-06T20:18:28.340237+02:00",
+  "texte": "Y a-t-il des anniversaires ou des dates importantes à ne surtout pas oublier dans les prochaines semaines ?"
+ },
+ "derniere_question_du_soir": "2026-10-06",
  "stt_historique": [
   [
    1791239740.5528557,
