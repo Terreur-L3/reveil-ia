@@ -12,10 +12,60 @@ aime:
   intensite: 3
   derniere: '2026-10-05'
   poids: 3
+- sujet: cinéma chef‑opérateur
+  mentions: 1
+  intensite: 3
+  derniere: '2026-10-09'
+  poids: 3
+- sujet: code
+  mentions: 1
+  intensite: 3
+  derniere: '2026-10-09'
+  poids: 3
+- sujet: effets spéciaux
+  mentions: 1
+  intensite: 3
+  derniere: '2026-10-09'
+  poids: 3
+- sujet: cinéma
+  mentions: 2
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
+- sujet: actualité
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
 - sujet: chef opérateur
   mentions: 1
   intensite: 2
   derniere: '2026-10-05'
+  poids: 2
+- sujet: coding Python
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
+- sujet: mini‑projets
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
+- sujet: podcast vocodé
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
+- sujet: projets IA Cloud
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
+  poids: 2
+- sujet: technique
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-09'
   poids: 2
 candidats: []
 evite: []
