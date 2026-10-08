@@ -3,11 +3,11 @@
  "offset": 176680270,
  "file": [],
  "question_en_attente": {
-  "id": "q20261007-2053",
-  "date": "2026-10-07T20:53:55.395706+02:00",
-  "texte": "À quoi ressemble une journée normale pour toi, du réveil jusqu'au coucher ?"
+  "id": "q20261008-2048",
+  "date": "2026-10-08T20:48:53.600308+02:00",
+  "texte": "Comment aimerais-tu que tes matins se passent idéalement ? Ce que tu voudrais entendre, et ce que tu voudrais éviter."
  },
- "derniere_question_du_soir": "2026-10-07",
+ "derniere_question_du_soir": "2026-10-08",
  "stt_historique": [
   [
    1791239740.5528557,
