@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680274,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-08",
+ "question_en_attente": {
+  "id": "q20261009-2019",
+  "date": "2026-10-09T20:19:22.121933+02:00",
+  "texte": "Quel défi technique rencontres‑tu en ce moment avec le compositing sur Nuke pour les effets de peau, et comment l’abordes‑tu ?"
+ },
+ "derniere_question_du_soir": "2026-10-09",
  "stt_historique": [
   [
    1791503274.6062026,
