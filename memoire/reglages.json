@@ -1,18 +1,18 @@
 {
   "version": 1,
   "reveil": {
-    "actif": false,
+    "actif": true,
     "jours": {
-      "lun": null,
-      "mar": null,
-      "mer": null,
-      "jeu": null,
-      "ven": null,
-      "sam": null,
-      "dim": null
+      "lun": "08:20",
+      "mar": "08:20",
+      "mer": "08:20",
+      "jeu": "08:20",
+      "ven": "08:20",
+      "sam": "08:20",
+      "dim": "08:20"
     },
     "ponctuel": {},
-    "maj": ""
+    "maj": "2026-10-10T14:45:13+02:00"
   },
   "podcast": {
     "minutes": null,
@@ -20,5 +20,5 @@
     "vitesse": null
   },
   "sonnette_vue": "",
-  "journal_offset": 176680274
+  "journal_offset": 176680276
 }
