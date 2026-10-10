@@ -4,6 +4,10 @@ Usage :
     python -m src.main              # texte + audio (+ envoi Telegram si configuré)
     python -m src.main --no-audio   # texte seulement (essai rapide : affiche le texte et le choix des actus)
 
+Fichiers produits (dossier output/) : latest.txt (le texte), latest.mp3 (le podcast, envoyé dans Telegram),
+reveil.mp3 (sonnerie de ~10 s + podcast, joué par le téléphone à l'heure du réveil), sonnerie.mp3 (sonnerie seule de
+~45 s, jouée à la place si le podcast du jour n'est pas prêt), meta.json, choix.txt.
+
 Codes de sortie : 0 = tout est bon, 1 = rien n'a pu être produit, 3 = texte OK mais audio raté,
 4 = podcast de SECOURS publié (sans actus : bonjour + infos perso), pour te prévenir que quelque chose cloche.
 """
@@ -20,8 +24,9 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import llm, news, perso, script_writer, triage, tts
+from . import jingle, llm, news, perso, reglages, script_writer, triage, tts
 from .fr import count_words, date_fr
+from .memoire import Memoire
 
 ROOT = Path(__file__).resolve().parent.parent
 log = logging.getLogger("reveil")
@@ -59,7 +64,8 @@ def fallback_script(prenom: str, perso_text: str, now: datetime) -> str:
     return "\n\n".join(parts)
 
 
-def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None, secours: bool = False) -> bool | None:
+def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None, secours: bool = False,
+                      silent: bool = False) -> bool | None:
     """Dépose le podcast dans la conversation Telegram. None = pas configuré, False = échec."""
     if not (cfg.get("telegram") or {}).get("envoyer_podcast", True):
         return None
@@ -72,7 +78,7 @@ def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None,
         caption = f"Podcast du {date_fr(now)}"
         if secours:
             caption = f"Podcast de secours du {date_fr(now)} (les actus n'ont pas pu être préparées)"
-        bot.send_voice(mp3, caption=caption, duration=duration)
+        bot.send_voice(mp3, caption=caption, duration=duration, silent=silent)
         return True
     except Exception as exc:  # le podcast est déjà publié : l'envoi n'est qu'un confort
         log.warning("Envoi Telegram impossible : %s", exc)
@@ -88,10 +94,29 @@ def generate(
     now: datetime,
     no_audio: bool = False,
     send_telegram: bool = True,
+    silent: bool = False,
+    origine: str = "",
 ) -> int:
     out.mkdir(parents=True, exist_ok=True)
-    for old in [*out.glob("latest.*"), out / "meta.json", out / "choix.txt"]:  # jamais de fichiers périmés
+    for old in [*out.glob("latest.*"), out / "reveil.mp3", out / "meta.json", out / "choix.txt"]:  # jamais de fichiers périmés
         old.unlink(missing_ok=True)
+
+    reveil_cfg = cfg.get("reveil") or {}
+    if reveil_cfg.get("sonnerie", True):  # d'abord : même si tout le reste échoue, le réveil aura au moins sa sonnerie
+        try:
+            jingle.build_alarm(out / "sonnerie.mp3", seconds=float(reveil_cfg.get("sonnerie_secours_s", 45)))
+        except Exception as exc:
+            log.warning("Sonnerie de secours impossible : %s", exc)
+
+    mem = Memoire(racine)
+    settings = mem.load_reglages()
+    cfg = reglages.apply_to_cfg(cfg, settings)  # durée, voix et vitesse choisies dans Telegram
+    consignes: list[str] = []
+    if (cfg.get("perso") or {}).get("consignes_dans_podcast", True):
+        try:  # seules les consignes de style non personnelles accompagnent la rédaction (qui peut passer par Gemini)
+            consignes = mem.consignes_for("podcast", allow_private=False)
+        except Exception as exc:
+            log.warning("Consignes ignorées : %s", exc)
 
     profile = triage.load_profile(racine)
     prenom = profile.get("prenom") or str(cfg.get("prenom") or "").strip()
@@ -117,7 +142,7 @@ def generate(
 
         script, model = script_writer.write_script(
             res.choices, cfg, keys, now,
-            prenom=prenom, perso_text=perso_text, libre=res.libre, calme=res.calme,
+            prenom=prenom, perso_text=perso_text, libre=res.libre, calme=res.calme, consignes=consignes,
         )
     except Exception as exc:
         raison = (" ; ".join(l.strip() for l in str(exc).splitlines() if l.strip()) or exc.__class__.__name__)[:300]
@@ -145,6 +170,8 @@ def generate(
             "ok": False, "modele": "", "actus": 0, "retenues": 0, "calme": False, "profil": profile.get("source", "?"),
         },
         "perso": {"lignes": n_perso},
+        "consignes": len(consignes),
+        "origine": origine or "local",
         "audio": False,
     }
     if raison:
@@ -156,13 +183,20 @@ def generate(
         try:
             voice = tts.synthesize(script, cfg.get("voix", {}), mp3)
             meta.update(audio=True, voix=voice, duree_s=audio_duration(mp3))
+            if (cfg.get("reveil") or {}).get("sonnerie", True):  # sonnerie + podcast, pour le téléphone
+                try:
+                    jingle.build(mp3, out / "reveil.mp3", seconds=float((cfg.get("reveil") or {}).get("sonnerie_s", 10)))
+                    meta["reveil_mp3"] = True
+                except Exception as exc:  # le podcast seul reste valable
+                    log.warning("Sonnerie impossible, le podcast seul sera joué : %s", exc)
+                    (out / "reveil.mp3").unlink(missing_ok=True)
         except Exception as exc:
             log.error("Échec de la synthèse vocale : %s", exc)
             mp3.unlink(missing_ok=True)
             code = EXIT_NO_AUDIO
         else:
             if send_telegram:
-                sent = _send_to_telegram(mp3, cfg, now, meta.get("duree_s"), secours=bool(raison))
+                sent = _send_to_telegram(mp3, cfg, now, meta.get("duree_s"), secours=bool(raison), silent=silent)
                 if sent is not None:
                     meta["telegram"] = sent
 
@@ -196,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         racine, cfg, out,
         keys=llm.keys_from_env(os.environ), now=now,
         no_audio=args.no_audio, send_telegram=not args.no_telegram,
+        silent=os.environ.get("PODCAST_SILENT", "").strip().lower() in ("1", "true", "oui", "yes"),
+        origine=os.environ.get("PODCAST_ORIGINE", "").strip()[:20],
     )
 
 

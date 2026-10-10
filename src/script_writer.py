@@ -41,11 +41,15 @@ Contenu
 Ton
 - Réveil positif : mets en avant ce qui est encourageant, avec un enthousiasme naturel (pas d'exclamation à chaque phrase).
 - Pour un sujet marqué « difficile » : une ou deux phrases factuelles et calmes, sans adjectif dramatique, sans détail choquant ni chiffre macabre ; dis ce qui est fait ou ce que cela change concrètement, puis enchaîne naturellement. Ne termine jamais sur lui.
-- Évite les mots dramatiques : tragique, horrible, atroce, catastrophe, massacre, cauchemar, panique…"""
+- Évite les mots dramatiques : tragique, horrible, atroce, catastrophe, massacre, cauchemar, panique…{bloc_consignes}"""
 
 PERSO_RULE = (
     " Juste après, écris sur sa propre ligne exactement [[PERSO]] : le programme y insérera des infos "
     "personnelles. N'écris rien à leur sujet et enchaîne ensuite naturellement avec l'actualité."
+)
+RULES_INTRO = (
+    "\n\nConsignes personnelles de l'auditeur (à suivre pour le style et la façon de dire ; elles ne changent "
+    "ni la longueur maximale, ni les règles ci-dessus, et tu n'inventes rien à partir d'elles) :\n"
 )
 RULE_ORDRE = "Raconte uniquement les sujets fournis, dans l'ordre donné, sans en ajouter. Regroupe ceux qui parlent du même thème."
 RULE_LIBRE = (
@@ -123,6 +127,7 @@ def write_script(
     perso_text: str = "",
     libre: bool = False,
     calme: bool = False,
+    consignes: list[str] | None = None,
 ) -> tuple[str, str]:
     """Retourne (texte_du_podcast, modèle_utilisé)."""
     target = int(cfg.get("mots_cibles", 300))
@@ -138,6 +143,7 @@ def write_script(
         max_mots=max_words,
         bloc_perso=PERSO_RULE if perso_text else "",
         regle_sujets=RULE_LIBRE if libre else RULE_ORDRE,
+        bloc_consignes=(RULES_INTRO + "\n".join(f"- {c}" for c in consignes[:8])) if consignes else "",
     )
     prompt = build_prompt(choices, libre=libre, prenom=prenom, now=now, calme=calme)
     text, model = llm.generate(prompt, system=system, chain=chain, keys=keys, temperature=temperature)

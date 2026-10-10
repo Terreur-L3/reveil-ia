@@ -25,16 +25,25 @@ AUDIO_EXT = {
     ".mp3", ".m4a", ".ogg", ".oga", ".opus", ".wav", ".flac", ".aac", ".amr", ".3gp",
     ".mp4", ".webm", ".mpga", ".mpeg",
 }
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"}
 
 BTN_INSPI = "💡 Inspi"
 BTN_MEMOIRE = "🧠 Mémoire"
+BTN_REVEIL = "⏰ Réveil"
+BTN_COURS = "📅 Cours"
+BUTTONS = (BTN_INSPI, BTN_MEMOIRE, BTN_REVEIL, BTN_COURS)
 KEYBOARD = {
-    "keyboard": [[{"text": BTN_INSPI}, {"text": BTN_MEMOIRE}]],
+    "keyboard": [[{"text": BTN_INSPI}, {"text": BTN_MEMOIRE}], [{"text": BTN_REVEIL}, {"text": BTN_COURS}]],
     "resize_keyboard": True,
     "is_persistent": True,
 }
 COMMANDS = [
     {"command": "inspi", "description": "Je n'ai plus d'inspiration : pose-moi une question"},
+    {"command": "reveil", "description": "Voir ou changer l'heure du réveil (ex. /reveil 6h30)"},
+    {"command": "cours", "description": "Mon emploi du temps"},
+    {"command": "podcast", "description": "Préparer le podcast maintenant"},
+    {"command": "consignes", "description": "Comment tu dois me parler"},
+    {"command": "reglages", "description": "Tous mes réglages"},
     {"command": "memoire", "description": "Ce que tu as appris sur moi"},
     {"command": "aide", "description": "Comment ça marche"},
 ]
@@ -59,18 +68,19 @@ class Incoming:
     update_id: int
     message_id: int
     ts: int
-    kind: str              # "text" ou "audio"
-    text: str = ""         # le texte du message (ou la légende d'un vocal)
+    kind: str              # "text", "audio", "image" ou "autre" (fichier que je ne sais pas lire)
+    text: str = ""         # le texte du message (ou la légende d'un vocal ou d'une image)
     file_id: str = ""
     file_size: int = 0
     duration: int = 0
     name: str = ""
     reply_to: int | None = None
     forwarded: bool = False
+    mime: str = ""
 
 
 def normalize(update: dict, chat_id: int) -> Incoming | None:
-    """Transforme une mise à jour Telegram en message simple. None = à ignorer (autre chat, photo, etc.)."""
+    """Transforme une mise à jour Telegram en message simple. None = à ignorer (autre chat, bot, sticker…)."""
     msg = update.get("message")
     if not isinstance(msg, dict):
         return None
@@ -94,16 +104,29 @@ def normalize(update: dict, chat_id: int) -> Incoming | None:
                 kind="audio", text=caption, file_id=media["file_id"], file_size=int(media.get("file_size") or 0),
                 duration=int(media.get("duration") or 0), name=str(media.get("file_name") or ""), **base,
             )
+    photo = msg.get("photo")
+    if isinstance(photo, list):  # une photo = plusieurs tailles de la même image : on prend la plus grande
+        sizes = [p for p in photo if isinstance(p, dict) and p.get("file_id")]
+        if sizes:
+            # largeur × hauteur sont toujours fournies, `file_size` est facultatif : on départage par les dimensions d'abord
+            best = max(sizes, key=lambda p: (int(p.get("width") or 0) * int(p.get("height") or 0), int(p.get("file_size") or 0)))
+            return Incoming(
+                kind="image", text=caption, file_id=best["file_id"], file_size=int(best.get("file_size") or 0),
+                mime="image/jpeg", **base,
+            )
     doc = msg.get("document")
     if isinstance(doc, dict) and doc.get("file_id"):
         name = str(doc.get("file_name") or "")
         mime = str(doc.get("mime_type") or "")
-        if mime.startswith(("audio/", "video/")) or Path(name).suffix.lower() in AUDIO_EXT:
+        ext = Path(name).suffix.lower()
+        size = int(doc.get("file_size") or 0)
+        if mime.startswith(("audio/", "video/")) or ext in AUDIO_EXT:
+            return Incoming(kind="audio", text=caption, file_id=doc["file_id"], file_size=size, name=name, **base)
+        if mime.startswith("image/") or ext in IMAGE_EXT:
             return Incoming(
-                kind="audio", text=caption, file_id=doc["file_id"], file_size=int(doc.get("file_size") or 0),
-                name=name, **base,
+                kind="image", text=caption, file_id=doc["file_id"], file_size=size, name=name, mime=mime, **base
             )
-        return None
+        return Incoming(kind="autre", text=caption, file_id=doc["file_id"], file_size=size, name=name, mime=mime, **base)
     if isinstance(msg.get("text"), str):
         return Incoming(kind="text", text=msg["text"], **base)
     return None
@@ -176,6 +199,9 @@ class Bot:
                 time.sleep(2 * (attempt + 1))
                 continue
             if code == 409:
+                if "terminated by other getupdates" in desc.lower() and attempt < retries:
+                    time.sleep(2 + 2 * attempt)  # un autre passage lisait au même instant : on laisse la place
+                    continue
                 raise Conflict(f"{method} : {desc}", code)
             if "file is too big" in desc.lower():
                 raise FileTooBig(f"{method} : {desc}", code)
@@ -221,11 +247,14 @@ class Bot:
         raise TelegramError(f"téléchargement impossible ({last})")
 
     # ----- écriture
-    def send_message(self, text: str, *, reply_markup: dict | None = None, reply_to: int | None = None) -> dict:
+    def send_message(self, text: str, *, reply_markup: dict | None = None, reply_to: int | None = None,
+                     silent: bool = False) -> dict:
         parts = _chunks(text)
         result: dict = {}
         for i, part in enumerate(parts):
             body: dict = {"chat_id": self.chat_id, "text": part}
+            if silent:
+                body["disable_notification"] = True
             if reply_markup and i == len(parts) - 1:
                 body["reply_markup"] = reply_markup
             if reply_to and i == 0:
@@ -233,13 +262,16 @@ class Bot:
             result = self._call("sendMessage", body=body) or {}
         return result
 
-    def send_voice(self, path: Path | str, *, caption: str | None = None, duration: int | None = None) -> dict:
+    def send_voice(self, path: Path | str, *, caption: str | None = None, duration: int | None = None,
+                   silent: bool = False) -> dict:
         path = Path(path)
         data = {"chat_id": str(self.chat_id)}
         if caption:
             data["caption"] = caption[:1000]
         if duration:
             data["duration"] = str(int(duration))
+        if silent:
+            data["disable_notification"] = "true"  # arrive sans sonnerie : le réveil, lui, fait le bruit
         files = {"voice": (path.name, path.read_bytes(), "audio/mpeg" if path.suffix == ".mp3" else "audio/ogg")}
         return self._call("sendVoice", data=data, files=files, timeout=120) or {}
 

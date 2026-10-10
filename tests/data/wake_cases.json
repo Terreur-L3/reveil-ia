@@ -1,0 +1,1193 @@
+{
+ "_commentaire": "Cas partagés entre tests/test_reglages.py (Python) et extras/sonnette/worker.test.js (JavaScript) : la sonnette doit lire l'horaire EXACTEMENT comme reglages.py.",
+ "wake_for": [
+  {
+   "nom": "semaine : jeudi",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "semaine : lundi",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-05",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "semaine : samedi sans réveil",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-10",
+   "attendu": null
+  },
+  {
+   "nom": "semaine : dimanche sans réveil",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-11",
+   "attendu": null
+  },
+  {
+   "nom": "réveil désactivé",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "exception avec heure un jour sans réveil",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-10": "09:00"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-10",
+   "attendu": "09:00"
+  },
+  {
+   "nom": "exception avec heure un jour de semaine",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "05:45"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "05:45"
+  },
+  {
+   "nom": "exception « off »",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "off"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "exception d'un autre jour sans effet",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-09": "off"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "exception valable même réveil désactivé",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "05:45"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "05:45"
+  },
+  {
+   "nom": "exception « off » réveil désactivé",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "off"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "heure invalide « 7:30 » ignorée",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "7:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "heure invalide « 25:00 » ignorée",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "25:00",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "heure invalide : un nombre",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": 630,
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "heure invalide : minute 60",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:60",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "exception à date invalide ignorée",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-13-01": "05:00",
+      "demain": "05:00"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "exception à heure invalide ignorée",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "6h30"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "exception à date impossible (30 février)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-02-30": "05:00"
+     },
+     "maj": ""
+    }
+   },
+   "jour": "2026-02-28",
+   "attendu": null
+  },
+  {
+   "nom": "pas de section reveil",
+   "reglages": {
+    "version": 1
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "fichier vide",
+   "reglages": {},
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "reveil n'est pas un objet",
+   "reglages": {
+    "reveil": "oui"
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "jours n'est pas un objet",
+   "reglages": {
+    "reveil": {
+     "actif": true,
+     "jours": [
+      "06:30",
+      "06:30",
+      "06:30",
+      "06:30",
+      "06:30",
+      "06:30",
+      "06:30"
+     ]
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "actif = texte « false » (vrai pour les deux langages)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": "false",
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "actif = liste vide (faux)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": [],
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "actif = 0 (faux)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": 0,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": null
+  },
+  {
+   "nom": "actif = 1 (vrai)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": 1,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "minuit pile",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "00:00",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "00:00"
+  },
+  {
+   "nom": "23:59",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "23:59",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "23:59"
+  },
+  {
+   "nom": "chaque jour sa propre heure : lun",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-05",
+   "attendu": "05:01"
+  },
+  {
+   "nom": "chaque jour sa propre heure : mar",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-06",
+   "attendu": "05:02"
+  },
+  {
+   "nom": "chaque jour sa propre heure : mer",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-07",
+   "attendu": "05:03"
+  },
+  {
+   "nom": "chaque jour sa propre heure : jeu",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-08",
+   "attendu": "05:04"
+  },
+  {
+   "nom": "chaque jour sa propre heure : ven",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-09",
+   "attendu": "05:05"
+  },
+  {
+   "nom": "chaque jour sa propre heure : sam",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-10",
+   "attendu": "05:06"
+  },
+  {
+   "nom": "chaque jour sa propre heure : dim",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "05:01",
+      "mar": "05:02",
+      "mer": "05:03",
+      "jeu": "05:04",
+      "ven": "05:05",
+      "sam": "05:06",
+      "dim": "05:07"
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-10-11",
+   "attendu": "05:07"
+  },
+  {
+   "nom": "fin d'année : jeudi 31 décembre 2026",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2026-12-31",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "1er janvier 2027 : vendredi",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2027-01-01",
+   "attendu": "06:30"
+  },
+  {
+   "nom": "29 février 2028 (bissextile) : mardi",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "jour": "2028-02-29",
+   "attendu": "06:30"
+  }
+ ],
+ "next_wake": [
+  {
+   "nom": "avant l'heure",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:29:00",
+   "attendu": {
+    "jour": "2026-10-08",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "à la minute exacte (inclus)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:30:00",
+   "attendu": {
+    "jour": "2026-10-08",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "une minute après",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:31:00",
+   "attendu": {
+    "jour": "2026-10-09",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "la nuit d'avant",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T00:10:00",
+   "attendu": {
+    "jour": "2026-10-08",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "vendredi soir : saute le week-end",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-09T20:00:00",
+   "attendu": {
+    "jour": "2026-10-12",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "samedi matin",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-10T09:00:00",
+   "attendu": {
+    "jour": "2026-10-12",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "aucune heure",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": null,
+      "mar": null,
+      "mer": null,
+      "jeu": null,
+      "ven": null,
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:00:00",
+   "attendu": null
+  },
+  {
+   "nom": "réveil désactivé",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:00:00",
+   "attendu": null
+  },
+  {
+   "nom": "exception aujourd'hui, déjà passée : demain",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "05:00"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T06:00:00",
+   "attendu": {
+    "jour": "2026-10-09",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "exception aujourd'hui avant l'heure habituelle",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "05:00"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T04:00:00",
+   "attendu": {
+    "jour": "2026-10-08",
+    "heure": "05:00"
+   }
+  },
+  {
+   "nom": "exception « off » aujourd'hui",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-08": "off"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T04:00:00",
+   "attendu": {
+    "jour": "2026-10-09",
+    "heure": "06:30"
+   }
+  },
+  {
+   "nom": "exception dans 10 jours seulement",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-18": "07:15"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T12:00:00",
+   "attendu": {
+    "jour": "2026-10-18",
+    "heure": "07:15"
+   }
+  },
+  {
+   "nom": "exception dans 14 jours (limite incluse)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-22": "07:15"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T12:00:00",
+   "attendu": {
+    "jour": "2026-10-22",
+    "heure": "07:15"
+   }
+  },
+  {
+   "nom": "exception dans 15 jours (hors limite)",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": false,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {
+      "2026-10-23": "07:15"
+     },
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-10-08T12:00:00",
+   "attendu": null
+  },
+  {
+   "nom": "changement d'année",
+   "reglages": {
+    "version": 1,
+    "reveil": {
+     "actif": true,
+     "jours": {
+      "lun": "06:30",
+      "mar": "06:30",
+      "mer": "06:30",
+      "jeu": "06:30",
+      "ven": "06:30",
+      "sam": null,
+      "dim": null
+     },
+     "ponctuel": {},
+     "maj": ""
+    }
+   },
+   "maintenant": "2026-12-31T22:00:00",
+   "attendu": {
+    "jour": "2027-01-01",
+    "heure": "06:30"
+   }
+  }
+ ]
+}

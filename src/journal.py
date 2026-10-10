@@ -5,6 +5,9 @@ Usage :
     python -m src.journal --inspi       # pose une question tout de suite (comme le bouton)
     python -m src.journal --no-send     # essai : n'envoie rien dans Telegram
 
+Ce que le bot comprend : vocaux et textes (journal), images (emploi du temps, documents), et des ordres
+(/reveil, /cours, /consignes, /podcast…). Les ordres de réveil sont lus par des règles fixes, pas par une IA.
+
 Codes de sortie : 0 = ok, 1 = Telegram ou Groq pas configurés, 2 = Telegram refuse (token ou webhook).
 Les textes de tes messages ne sont jamais écrits dans les logs.
 """
@@ -13,6 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -24,25 +28,37 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import audio, extract, inspi, llm, stt, telegram, triage, tts
+from . import audio, edt, extract, github, inspi, llm, reglages, stt, telegram, triage, tts, vision
 from .fr import MOIS, duree_fr, jour_court_fr
 from .main import load_env
-from .memoire import Memoire
+from .memoire import Memoire, norm
 from .pacer import Pacer
 
 ROOT = Path(__file__).resolve().parent.parent
 log = logging.getLogger("journal")
 
 WELCOME = (
-    "👋 Salut ! Je suis ton journal vocal.\n\n"
-    "🎙️ Envoie-moi des vocaux (30 secondes ou plus d'une heure) ou des textes pour me raconter ta vie : "
-    "je les transcris et j'en retiens ce qui compte (anniversaires, projets, goûts, échéances…).\n"
-    "💡 Plus d'inspiration ? Appuie sur « 💡 Inspi » : je te pose une question.\n"
-    "🧠 « 🧠 Mémoire » te montre ce que j'ai appris et d'où viennent tes actus.\n"
-    "🌅 Chaque matin, ton podcast arrive ici.\n\n"
-    "Je lis tes messages en général dans la demi-heure. Seul le texte est gardé, jamais l'audio."
+    "👋 Salut ! Je suis ton assistant du matin.\n\n"
+    "🎙️ Vocaux (30 secondes ou plus d'une heure) et textes : raconte-moi ta vie, j'en retiens ce qui compte "
+    "(anniversaires, projets, goûts, échéances…).\n"
+    "🖼️ Images : envoie une photo ou une capture de ton emploi du temps (idéalement « en tant que fichier » pour "
+    "qu'elle reste nette) : je lis tes cours et je te les rappelle chaque matin.\n"
+    "⏰ /reveil 6h30 : l'heure à laquelle ton podcast se lance. Tu peux aussi le dire : « mets mon réveil à 6h30 ».\n"
+    "📌 Dis-moi comment tu veux que je te parle (« plus décontracté », « phrases courtes »…) : je le retiens. "
+    "/consignes pour voir la liste.\n"
+    "💡 « 💡 Inspi » : je te pose une question quand tu manques d'inspiration.\n"
+    "🎧 /podcast : je prépare le podcast tout de suite. 🧠 /memoire · ⚙️ /reglages\n\n"
+    "Seul le texte est gardé, jamais l'audio ni les images. Je lis tes messages en général dans la demi-heure "
+    "(en quelques minutes avec la « sonnette »)."
 )
 HELP_UNKNOWN = "Je ne connais pas cette commande. Tape /aide, ou utilise les boutons en bas."
+HELP_FILE = ("📎 Je sais lire les vocaux, les textes et les images (photo ou capture d'écran). "
+             "Pour un autre type de fichier (PDF…), envoie plutôt une capture d'écran.")
+HELP_REVEIL = ("Je n'ai pas compris l'heure. Exemples : /reveil 6h30 · /reveil 7h semaine · /reveil 9h week-end · "
+               "/reveil demain 5h45 · /reveil off · /reveil on")
+SONNETTE_NOTE = ("ℹ️ Pour que le podcast se lance tout seul à l'heure exacte, il faut installer la « sonnette » "
+                 "(README, étape 8). En attendant, il t'attend ici chaque matin.")
+SHORT_ORDER_WORDS = 14   # un message plus court que ça, qui ne contient qu'un ordre de réveil, n'entre pas dans le journal
 
 
 @dataclass
@@ -70,7 +86,11 @@ class Ctx:
     out: list[Out] = field(default_factory=list)
     wants_inspi: bool = False
     touched: set = field(default_factory=set)   # entrées déjà traitées pendant ce passage
-    stats: dict = field(default_factory=lambda: {"texte": 0, "audio": 0, "commandes": 0, "ignores": 0, "entrees": 0})
+    settings: dict = field(default_factory=lambda: reglages.normalize(None))   # réveil, voix… (memoire/reglages.json)
+    settings_changed: bool = False
+    origine: str = ""                           # « sonnette » quand c'est le petit programme Cloudflare qui m'a lancé
+    stats: dict = field(default_factory=lambda: {
+        "texte": 0, "audio": 0, "images": 0, "commandes": 0, "ignores": 0, "entrees": 0})
 
     @property
     def j(self) -> dict:
@@ -92,13 +112,21 @@ def _entry_id(m: telegram.Incoming) -> str:
     return f"m{m.update_id}-{m.message_id}"
 
 
-def _new_entry(ctx: Ctx, eid: str, ts: int, kind: str, text: str, duration: int | None, answers: str | None) -> dict:
-    when = datetime.fromtimestamp(ts, ctx.tz) if ts else ctx.now
-    return {
+def _stamp(ctx: Ctx, ts: int | float | None) -> datetime:
+    return datetime.fromtimestamp(ts, ctx.tz) if ts else ctx.now
+
+
+def _new_entry(ctx: Ctx, eid: str, ts: int, kind: str, text: str, duration: int | None, answers: str | None,
+               forwarded: bool = False) -> dict:
+    when = _stamp(ctx, ts)
+    entry = {
         "id": eid, "date": when.date().isoformat(), "heure": when.strftime("%H:%M"), "type": kind,
         "duree_s": int(duration) if duration else None, "texte": text.strip(), "resume": "",
         "repond_a": answers, "extrait": False, "essais_extraction": 0,
     }
+    if forwarded:
+        entry["transfere"] = True   # ce texte ne vient pas de toi : il ne peut ni donner d'ordre ni changer un réglage
+    return entry
 
 
 def _link_question(ctx: Ctx, reply_to: int | None, entry_id: str) -> str | None:
@@ -126,22 +154,64 @@ def handle_text_entry(ctx: Ctx, m: telegram.Incoming) -> None:
     eid = _entry_id(m)
     if ctx.mem.has_entry(eid):
         return
+    if not m.forwarded and apply_wake_orders(ctx, m.text, _stamp(ctx, m.ts)):
+        return  # ce message n'était qu'un ordre de réveil
     qid = _link_question(ctx, m.reply_to, eid)
-    entry = _new_entry(ctx, eid, m.ts, "texte", m.text, None, qid)
+    entry = _new_entry(ctx, eid, m.ts, "texte", m.text, None, qid, m.forwarded)
     ctx.mem.add_entry(entry, (ctx.mem.question(qid) or {}).get("texte"))
     ctx.stats["entrees"] += 1
     finish_entry(ctx, entry)
 
 
-def enqueue_audio(ctx: Ctx, m: telegram.Incoming) -> None:
+def enqueue_media(ctx: Ctx, m: telegram.Incoming) -> None:
+    """Un vocal ou une image : mis en file, traité juste après (et repris au passage suivant si ça échoue)."""
     eid = _entry_id(m)
     if ctx.mem.has_entry(eid) or any(i["id"] == eid for i in ctx.state["file"]):
         return
     ctx.state["file"].append({
-        "id": eid, "file_id": m.file_id, "taille": m.file_size, "duree": m.duration, "nom": m.name,
-        "recu": m.ts, "legende": m.text, "repond_a": _link_question(ctx, m.reply_to, eid),
-        "textes": [], "essais": 0, "erreur": "",
+        "id": eid, "type": "image" if m.kind == "image" else "audio", "file_id": m.file_id, "taille": m.file_size,
+        "duree": m.duration, "nom": m.name, "mime": m.mime, "recu": m.ts, "legende": m.text,
+        "repond_a": _link_question(ctx, m.reply_to, eid) if m.kind == "audio" else None,
+        "transfere": bool(m.forwarded), "textes": [], "essais": 0, "erreur": "",
     })
+
+
+enqueue_audio = enqueue_media   # ancien nom
+
+
+# --------------------------------------------------------------------------- ordres de réveil
+def sonnette_recent(ctx: Ctx) -> bool:
+    try:
+        return ctx.now - datetime.fromisoformat(ctx.settings.get("sonnette_vue") or "") < timedelta(days=3)
+    except ValueError:
+        return False
+
+
+def wake_reply(ctx: Ctx, orders: list, stamp: datetime) -> str:
+    """Applique les ordres, retourne le message de confirmation (toujours : on voit ce qui a été compris)."""
+    # période, exception ou jours flous : on le dit, on ne devine pas (et on applique quand même ce qui est clair)
+    unclear = any(o.action in ("ask", "unclear") for o in orders)
+    explain = reglages.ASK_TEXT if any(o.action == "ask" for o in orders) else reglages.UNCLEAR_TEXT
+    changed = [o for o in orders if o.action not in ("show", "ask", "unclear")]
+    if not changed:
+        return explain if unclear else reglages.describe(ctx.settings, ctx.now)
+    lines = [reglages.apply_request(ctx.settings, o, ctx.now, stamp) for o in changed]
+    ctx.settings_changed = True
+    lines += ["", reglages.describe(ctx.settings, ctx.now)]
+    if unclear:
+        lines += ["", explain]
+    if not sonnette_recent(ctx):
+        lines += ["", SONNETTE_NOTE]
+    return "\n".join(lines)
+
+
+def apply_wake_orders(ctx: Ctx, text: str, stamp: datetime) -> bool:
+    """Cherche des ordres de réveil dans un message. Retourne True si le message n'était QUE cela."""
+    orders = reglages.find_wake_requests(text, stamp.date())
+    if not orders:
+        return False
+    ctx.say(wake_reply(ctx, orders, stamp))
+    return len(text.split()) <= SHORT_ORDER_WORDS
 
 
 # --------------------------------------------------------------------------- extraction et accusé
@@ -163,11 +233,13 @@ def try_extract(ctx: Ctx, entry: dict) -> dict | None:
 
     question = (ctx.mem.question(entry.get("repond_a")) or {}).get("texte", "")
     ctx.touched.add(entry["id"])
+    own_words = entry.get("type") in ("texte", "vocal") and not entry.get("transfere")
     try:
         ex = extract.extract(
             entry["texte"], entry_date=entry["date"], cfg=ctx.cfg, keys=ctx.keys, pacer=ctx.pacer,
             prenom=ctx.prenom, known_topics=_known_topics(ctx), question_text=question,
             resume_from=partial, on_progress=progress, deadline=ctx.deadline,
+            known_rules=[c["texte"] for c in ctx.mem.consignes()], allow_instructions=own_words,
         )
     except extract.ExtractPause:
         log.info("Extraction en pause (temps écoulé) : reprise au prochain passage")
@@ -176,7 +248,9 @@ def try_extract(ctx: Ctx, entry: dict) -> dict | None:
         log.warning("Extraction impossible pour l'instant : %s", str(exc).splitlines()[0])
         ctx.mem.update_entry(entry["id"], essais_extraction=int(entry.get("essais_extraction", 0)) + 1)
         return None
-    applied = ctx.mem.apply_extraction(entry, ex, ctx.now.date())
+    applied = ctx.mem.apply_extraction(entry, ex, ctx.now.date(), settings=ctx.settings)
+    if applied.get("reglages"):
+        ctx.settings_changed = True      # écrits avec le reste en fin de passage (voir run)
     ctx.state["extractions"].pop(entry["id"], None)
     return applied
 
@@ -192,12 +266,18 @@ def _details(applied: dict) -> list[str]:
         lines.append(f"• 🔔 {r['texte']} — {jour_court_fr(date.fromisoformat(r['date']))}")
     if applied.get("promus"):
         lines.append("• ⭐ centres d'intérêt retenus pour tes actus : " + ", ".join(applied["promus"]))
-    return lines[:7]
+    for c in applied.get("consignes", []):
+        lines.append(f"• 📌 consigne retenue : « {c['texte']} »")
+    if applied.get("consignes"):
+        lines.append("  (pour la retirer : /consignes puis /oublier N)")
+    for r in applied.get("reglages", []):
+        lines.append(f"• 🔧 {r}")
+    return lines[:10]
 
 
-def ack_text(entry: dict, applied: dict | None) -> str:
-    head = "✅ Noté"
-    if entry.get("type") == "vocal" and entry.get("duree_s"):
+def ack_text(entry: dict, applied: dict | None, head: str | None = None) -> str:
+    head = head or "✅ Noté"
+    if head == "✅ Noté" and entry.get("type") == "vocal" and entry.get("duree_s"):
         head += f" ({duree_fr(entry['duree_s'])} de vocal)"
     if applied is None:
         return head + ". Je rangerai les infos au prochain passage."
@@ -205,8 +285,8 @@ def ack_text(entry: dict, applied: dict | None) -> str:
     return head + (".\n" + "\n".join(lines) if lines else ".")
 
 
-def finish_entry(ctx: Ctx, entry: dict) -> None:
-    ctx.say(ack_text(entry, try_extract(ctx, entry)))
+def finish_entry(ctx: Ctx, entry: dict, head: str | None = None) -> None:
+    ctx.say(ack_text(entry, try_extract(ctx, entry), head))
 
 
 def retry_pending_extractions(ctx: Ctx) -> None:
@@ -225,16 +305,98 @@ def retry_pending_extractions(ctx: Ctx) -> None:
 def _give_up(ctx: Ctx, item: dict, reason: str) -> str:
     item["essais"] = int(item.get("essais", 0)) + 1
     item["erreur"] = reason[:200]
-    log.warning("Vocal %s : %s (essai %d)", item["id"], reason, item["essais"])
+    what = "image" if item.get("type") == "image" else "vocal"
+    log.warning("%s %s : %s (essai %d)", what.capitalize(), item["id"], reason, item["essais"])
     if item["essais"] >= 4:
         when = datetime.fromtimestamp(item["recu"], ctx.tz).strftime("%d/%m à %H:%M") if item.get("recu") else ""
-        ctx.say(f"⚠️ Je n'arrive pas à traiter ton vocal du {when} ({reason[:120]}). Je l'abandonne : tu peux le renvoyer.")
+        ctx.say(f"⚠️ Je n'arrive pas à traiter ton {what} du {when} ({reason[:120]}). Je l'abandonne : tu peux le renvoyer.")
         return "abandon"
     return "attente"
 
 
+# --------------------------------------------------------------------------- images
+_THIS_WEEK_ONLY_RE = re.compile(r"cette semaine\s+(?:seulement|uniquement)|exceptionnel|seulement cette semaine|juste cette semaine",
+                                re.IGNORECASE)
+
+
+def timetable_ack(report: dict, edt_data: dict, today: date, source: str) -> str:
+    days = ", ".join(report["jours"]) if report["jours"] else "aucun jour"
+    head = f"📅 J'ai lu {source} : {report['cours']} cours ({days})."
+    scope = ("Je les répète chaque semaine, jusqu'à ce que tu m'envoies autre chose."
+             if report["recurrent"] else "C'est noté pour cette semaine seulement.")
+    return "\n".join([head, scope, "", edt.week_text(edt_data, today)])
+
+
+def process_image(ctx: Ctx, item: dict) -> str:
+    """Lit une image (emploi du temps, document…) avec Groq ; rien d'autre que le texte lu n'est gardé."""
+    if not ctx.keys.get("groq"):
+        return "attente"
+    if ctx.out_of_time():
+        return "attente_temps"
+    workdir = ctx.tmp / item["id"]
+    ext = Path(item.get("nom") or "").suffix.lower() or ".jpg"
+    try:
+        source = ctx.bot.download(item["file_id"], workdir / f"image{ext}")
+    except telegram.FileTooBig:
+        ctx.say("⚠️ Cette image dépasse 20 Mo : Telegram ne me laisse pas la télécharger. Réduis-la et renvoie-la.")
+        return "abandon"
+    except telegram.TelegramError as exc:
+        return _give_up(ctx, item, f"téléchargement ({exc})")
+    try:
+        mime, data = vision.prepare_image(source)
+    except vision.ImageError as exc:
+        ctx.say(f"⚠️ Je ne peux pas lire cette image : {exc}.")
+        return "abandon"
+    try:
+        reading = vision.read_images([(mime, data)], caption=item.get("legende") or "", now=ctx.now, cfg=ctx.cfg,
+                                     keys=ctx.keys, prenom=ctx.prenom, pacer=ctx.pacer)
+    except llm.LLMError as exc:
+        return _give_up(ctx, item, "lecture de l'image : " + str(exc).splitlines()[0][:80])
+
+    today = _stamp(ctx, item.get("recu", 0)).date()
+    caption = item.get("legende") or ""
+    if reading.type == "emploi_du_temps":
+        if not reading.cours:
+            ctx.say("📅 J'ai bien vu un emploi du temps, mais je n'arrive pas à le lire"
+                    + (f" ({reading.description})" if reading.description else "")
+                    + ". Renvoie-le « en tant que fichier » (Telegram écrase les photos) ou recadre-le sur quelques jours.")
+            return "fini"
+        recurring = not _THIS_WEEK_ONLY_RE.search(caption)
+        week = edt.resolve_week(reading.semaine_du, today)
+        if not recurring and week is None:
+            week = edt.school_week(today)
+        data_edt = edt.load(ctx.mem.p_edt)
+        report = edt.merge(data_edt, reading.cours, reading.jours_vus, week=week, recurring=recurring, today=today)
+        if not report["cours"]:
+            ctx.say("📅 J'ai lu l'image mais aucun cours n'est exploitable (jours ou horaires illisibles). "
+                    "Renvoie-la en fichier, plus nette.")
+            return "fini"
+        edt.save(ctx.mem.p_edt, data_edt)
+        text = f"Emploi du temps lu sur une image : {report['cours']} cours ({', '.join(report['jours'])})."
+        entry = _new_entry(ctx, item["id"], item.get("recu", 0), "image", text, None, None, bool(item.get("transfere")))
+        entry["extrait"] = True
+        if not ctx.mem.has_entry(entry["id"]):
+            ctx.mem.add_entry(entry)
+            ctx.stats["entrees"] += 1
+        ctx.say(timetable_ack(report, data_edt, today, "ton emploi du temps"))
+        return "fini"
+
+    body = "\n".join(x for x in (reading.description, reading.texte) if x).strip()
+    if not body:
+        ctx.say("🖼️ Je n'ai rien pu lire d'utile sur cette image.")
+        return "fini"
+    entry = _new_entry(ctx, item["id"], item.get("recu", 0), "image", body, None, None, bool(item.get("transfere")))
+    if not ctx.mem.has_entry(entry["id"]):
+        ctx.mem.add_entry(entry)
+        ctx.stats["entrees"] += 1
+        finish_entry(ctx, entry, head="🖼️ Image lue" + (f" : {reading.description}" if reading.description else ""))
+    return "fini"
+
+
 def process_item(ctx: Ctx, item: dict) -> str:
     """'fini', 'abandon' (à retirer de la file) ou 'attente' / 'attente_quota' / 'attente_temps' (à reprendre)."""
+    if item.get("type") == "image":
+        return process_image(ctx, item)
     j = ctx.j
     key = ctx.keys.get("groq", "")
     if not key:
@@ -283,8 +445,11 @@ def process_item(ctx: Ctx, item: dict) -> str:
     if len(transcript.split()) < 2:
         ctx.say("🎙️ Je n'ai rien entendu dans ce vocal (silence ?).")
         return "fini"
+    if not item.get("transfere") and apply_wake_orders(ctx, transcript, _stamp(ctx, item.get("recu", 0))):
+        return "fini"  # ce vocal n'était qu'un ordre de réveil
     duration = item.get("duree") or int(sum(c.duration for c in chunks))
-    entry = _new_entry(ctx, item["id"], item.get("recu", 0), "vocal", transcript, duration, item.get("repond_a"))
+    entry = _new_entry(ctx, item["id"], item.get("recu", 0), "vocal", transcript, duration, item.get("repond_a"),
+                       bool(item.get("transfere")))
     if not ctx.mem.has_entry(entry["id"]):
         ctx.mem.add_entry(entry, (ctx.mem.question(entry["repond_a"]) or {}).get("texte"))
         ctx.stats["entrees"] += 1
@@ -332,7 +497,8 @@ def maybe_question(ctx: Ctx) -> None:
 
     pending = ctx.state.get("question_en_attente") or {}
     q = inspi.make_question(ctx.mem, ctx.cfg, ctx.keys, ctx.now, pacer=ctx.pacer, prenom=ctx.prenom,
-                           pending=pending.get("texte", ""))
+                           pending=pending.get("texte", ""),
+                           consignes=ctx.mem.consignes_for("questions", allow_private=True))
     qid = ctx.mem.next_question_id(ctx.now)
     record = {
         "id": qid, "date": today, "heure": ctx.now.strftime("%H:%M"), "texte": q["texte"], "categorie": q["categorie"],
@@ -342,7 +508,7 @@ def maybe_question(ctx: Ctx) -> None:
     if ctx.j.get("question_vocale", True):
         try:
             voice = ctx.tmp / f"{qid}.mp3"
-            tts.synthesize(q["texte"], ctx.cfg.get("voix", {}), voice)
+            tts.synthesize(q["texte"], reglages.apply_to_cfg(ctx.cfg, ctx.settings).get("voix", {}), voice)
         except Exception as exc:  # pas de voix ? la question reste lisible
             log.warning("Voix de la question impossible : %s", str(exc).splitlines()[0])
             voice = None
@@ -369,6 +535,11 @@ def memoire_text(ctx: Ctx) -> str:
     lines.append(f"• {s['faits']} infos retenues" + (f" ({cats})" if cats else ""))
     lines.append(f"• {s['anniversaires']} anniversaires et {s['rappels']} rappels appris")
     lines.append(f"• {s['repondues']} réponses à mes {s['questions']} questions")
+    if s["consignes"]:
+        lines.append(f"• {s['consignes']} consigne{'s' if s['consignes'] > 1 else ''} sur ta façon d'être servi (/consignes)")
+    courses = edt.count(edt.load(ctx.mem.p_edt))
+    if courses:
+        lines.append(f"• {courses} cours dans ton emploi du temps (/cours)")
     if s["aime"]:
         lines.append("• Tes centres d'intérêt : " + ", ".join(e["sujet"] for e in s["aime"][:8]))
     lines.append("")
@@ -383,10 +554,181 @@ def memoire_text(ctx: Ctx) -> str:
     return "\n".join(lines)
 
 
+def settings_text(ctx: Ctx) -> str:
+    courses = edt.count(edt.load(ctx.mem.p_edt))
+    consignes = len(ctx.mem.consignes())
+    lines = [
+        "⚙️ Tes réglages", "",
+        reglages.describe(ctx.settings, ctx.now),
+        reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))),
+        f"📌 {consignes} consigne{'s' if consignes > 1 else ''} (/consignes)",
+        f"📅 emploi du temps : {courses} cours (/cours)" if courses else "📅 emploi du temps : pas encore (envoie une image, ou /cours)",
+        "",
+        "Pour changer : /reveil 6h30 · /duree 3 · /voix homme ou femme · /vitesse lent, normal ou rapide · /consigne … · /cours",
+    ]
+    if not sonnette_recent(ctx):
+        lines += ["", SONNETTE_NOTE]
+    return "\n".join(lines)
+
+
+def cmd_reveil(ctx: Ctx, args: str, stamp: datetime) -> None:
+    orders = reglages.parse_wake_args(args, stamp.date())
+    ctx.say(wake_reply(ctx, orders, stamp) if orders else HELP_REVEIL)
+
+
+def _set_podcast(ctx: Ctx, key: str, value) -> None:
+    line = reglages.set_podcast(ctx.settings, key, value)
+    ctx.settings_changed = True
+    ctx.say(f"🔧 Réglé : {line}.\n" + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300)))
+            + "\nÇa s'applique au prochain podcast.")
+
+
+def cmd_duree(ctx: Ctx, args: str) -> None:
+    minutes = reglages.parse_duree(args) if args else None
+    if minutes is None:
+        ctx.say(reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300)))
+                + "\nPour changer : /duree 3 (de 1 à 8 minutes ; 1,5 est accepté).")
+        return
+    _set_podcast(ctx, "minutes", minutes)
+
+
+def cmd_voix(ctx: Ctx, args: str) -> None:
+    voice = reglages.parse_voix(args) if args else None
+    if voice is None:
+        ctx.say("🎙️ Choisis : /voix homme · /voix femme · /voix remy · /voix vivienne\n"
+                + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
+        return
+    _set_podcast(ctx, "voix", voice)
+
+
+def cmd_vitesse(ctx: Ctx, args: str) -> None:
+    speed = reglages.parse_vitesse(args) if args else None
+    if speed is None:
+        ctx.say("🐢🐇 Choisis : /vitesse lent · /vitesse normal · /vitesse rapide (ou un pourcentage, ex. /vitesse +15%)\n"
+                + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
+        return
+    _set_podcast(ctx, "vitesse", speed)
+
+
+_SCOPE_LABEL = {"podcast": "le podcast", "questions": "mes questions", "tout": "tout"}
+
+
+def _guess_scope(text: str) -> str:
+    low = norm(text)
+    if re.search(r"\b(question|questions|inspi)\b", low):
+        return "questions"
+    if re.search(r"\b(podcast|actu|actus|matin|nouvelles|journal)\b", low):
+        return "podcast"
+    return "tout"
+
+
+def cmd_consignes(ctx: Ctx) -> None:
+    rules = ctx.mem.consignes()
+    if not rules:
+        ctx.say("📌 Aucune consigne pour l'instant. Dis-moi par exemple « parle-moi de façon plus décontractée » "
+                "(message ou vocal), ou écris /consigne suivi de ce que tu veux.")
+        return
+    lines = [f"📌 Tes consignes ({len(rules)})", ""]
+    for n, c in enumerate(rules, 1):
+        mark = " 🔒" if c.get("prive") else ""
+        lines.append(f"{n}. {c['texte']} — {_SCOPE_LABEL.get(c.get('portee', 'tout'), 'tout')}{mark}")
+    lines += ["", "Pour en retirer une : /oublier 2 · pour en ajouter : /consigne … ou dis-le-moi simplement.",
+              "🔒 = personnelle : elle ne part jamais vers Gemini (seulement Groq)."]
+    ctx.say("\n".join(lines))
+
+
+def cmd_consigne(ctx: Ctx, args: str, stamp: datetime) -> None:
+    if len(args) < 6:
+        ctx.say("Écris la consigne après la commande. Exemple : /consigne parle-moi de façon décontractée et fais des phrases courtes")
+        return
+    scope = _guess_scope(args)
+    private = extract.is_sensitive(args)
+    if ctx.mem.add_consigne(args, scope, stamp.date().isoformat(), "commande", private):
+        ctx.say(f"📌 Consigne retenue : « {args[:160]} » (concerne : {_SCOPE_LABEL[scope]}).\n/consignes pour la liste, /oublier N pour la retirer.")
+    else:
+        ctx.say("📌 Cette consigne existe déjà (ou elle est trop courte). /consignes pour voir la liste.")
+
+
+def cmd_oublier(ctx: Ctx, args: str) -> None:
+    m = re.search(r"\d+", args or "")
+    gone = ctx.mem.remove_consigne(int(m.group(0))) if m else None
+    if gone:
+        ctx.say(f"🗑️ Consigne retirée : « {gone['texte']} ».")
+    else:
+        ctx.say("Dis-moi quelle consigne retirer : /consignes pour la liste, puis par exemple /oublier 2.")
+
+
+def cmd_cours(ctx: Ctx, args: str, stamp: datetime) -> None:
+    today = stamp.date()
+    data = edt.load(ctx.mem.p_edt)
+    if not args:
+        ctx.say(edt.week_text(data, today))
+        return
+    if norm(args) in ("effacer", "reset", "vider", "supprimer", "tout effacer", "efface"):
+        edt.clear(data)
+        edt.save(ctx.mem.p_edt, data)
+        ctx.say("🗑️ Emploi du temps effacé. Renvoie une image ou écris /cours suivi de tes cours pour le refaire.")
+        return
+    try:
+        reading = vision.read_text(args, now=ctx.now, cfg=ctx.cfg, keys=ctx.keys, prenom=ctx.prenom, pacer=ctx.pacer)
+    except llm.LLMError as exc:
+        log.warning("Emploi du temps écrit illisible : %s", str(exc).splitlines()[0])
+        ctx.say("⚠️ Je n'arrive pas à lire ça pour l'instant : réessaie dans un moment.")
+        return
+    if not reading.cours:
+        ctx.say("Je n'ai trouvé aucun cours dans ton texte. Exemple : /cours lundi 9h-12h étalonnage salle 204 ; mardi 14h-17h histoire du cinéma")
+        return
+    recurring = not _THIS_WEEK_ONLY_RE.search(args)
+    week = edt.resolve_week(reading.semaine_du, today)
+    if not recurring and week is None:
+        week = edt.school_week(today)
+    report = edt.merge(data, reading.cours, reading.jours_vus, week=week, recurring=recurring, today=today)
+    if not report["cours"]:
+        ctx.say("Je n'ai pas pu lire de jour ni d'horaire dans ton texte. Exemple : /cours lundi 9h-12h étalonnage")
+        return
+    edt.save(ctx.mem.p_edt, data)
+    ctx.say(timetable_ack(report, data, today, "ton texte"))
+
+
+def cmd_podcast(ctx: Ctx) -> None:
+    if not ctx.send:
+        ctx.say("(essai) Je lancerais le podcast maintenant.")
+        return
+    last = ctx.state.get("dernier_podcast") or ""
+    try:
+        recent = bool(last) and ctx.now - datetime.fromisoformat(last) < timedelta(minutes=10)
+    except ValueError:
+        recent = False
+    if recent:
+        ctx.say("🎧 Un podcast vient déjà d'être demandé : patience, il arrive (3 à 5 minutes).")
+        return
+    try:
+        github.dispatch("podcast.yml", {"origine": "telegram"})
+    except github.GitHubError as exc:
+        log.warning("Lancement du podcast impossible : %s", exc)
+        if exc.missing:
+            ctx.say("⚠️ Je ne peux pas le lancer d'ici. Dans GitHub : onglet Actions → « Podcast du matin » → Run workflow.")
+        else:
+            ctx.say(f"⚠️ GitHub n'a pas lancé le podcast : {exc}")
+        return
+    ctx.state["dernier_podcast"] = ctx.now.isoformat(timespec="seconds")
+    ctx.say("🎧 C'est lancé ! Le podcast arrive ici dans 3 à 5 minutes.")
+
+
+_BUTTON_COMMANDS = {
+    telegram.BTN_INSPI: "/inspi", telegram.BTN_MEMOIRE: "/memoire",
+    telegram.BTN_REVEIL: "/reveil", telegram.BTN_COURS: "/cours",
+}
+
+
 def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
     text = m.text.strip()
-    command = text.split()[0].lower().split("@")[0] if text.startswith("/") else ""
+    stamp = _stamp(ctx, m.ts)
     ctx.stats["commandes"] += 1
+    if text in _BUTTON_COMMANDS:
+        command, args = _BUTTON_COMMANDS[text], ""
+    else:
+        command, args = text.split()[0].lower().split("@")[0], text.partition(" ")[2].strip()
     if command in ("/start", "/aide", "/help"):
         ctx.say(WELCOME, markup=telegram.KEYBOARD)
         if command == "/start":
@@ -394,10 +736,30 @@ def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
                 ctx.bot.set_commands()
             except telegram.TelegramError as exc:
                 log.warning("Menu de commandes non installé : %s", exc)
-    elif command == "/inspi" or text == telegram.BTN_INSPI:
+    elif command == "/inspi":
         ctx.wants_inspi = True
-    elif command in ("/memoire", "/mémoire") or text == telegram.BTN_MEMOIRE:
+    elif command in ("/memoire", "/mémoire"):
         ctx.say(memoire_text(ctx))
+    elif command in ("/reveil", "/réveil"):
+        cmd_reveil(ctx, args, stamp)
+    elif command in ("/reglages", "/réglages", "/reglage"):
+        ctx.say(settings_text(ctx))
+    elif command in ("/duree", "/durée"):
+        cmd_duree(ctx, args)
+    elif command == "/voix":
+        cmd_voix(ctx, args)
+    elif command == "/vitesse":
+        cmd_vitesse(ctx, args)
+    elif command == "/consignes":
+        cmd_consignes(ctx)
+    elif command == "/consigne":
+        cmd_consigne(ctx, args, stamp)
+    elif command == "/oublier":
+        cmd_oublier(ctx, args)
+    elif command == "/cours":
+        cmd_cours(ctx, args, stamp)
+    elif command == "/podcast":
+        cmd_podcast(ctx)
     else:
         ctx.say(HELP_UNKNOWN)
 
@@ -405,12 +767,19 @@ def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
 def handle_message(ctx: Ctx, m: telegram.Incoming) -> None:
     if m.kind == "audio":
         ctx.stats["audio"] += 1
-        enqueue_audio(ctx, m)
+        enqueue_media(ctx, m)
+        return
+    if m.kind == "image":
+        ctx.stats["images"] += 1
+        enqueue_media(ctx, m)
+        return
+    if m.kind == "autre":
+        ctx.say(HELP_FILE)
         return
     text = m.text.strip()
     if not text:
         return
-    if text.startswith("/") or text in (telegram.BTN_INSPI, telegram.BTN_MEMOIRE):
+    if text.startswith("/") or text in _BUTTON_COMMANDS:
         handle_command(ctx, m)
     else:
         ctx.stats["texte"] += 1
@@ -454,6 +823,7 @@ def run(
     deadline: float | None = None,
     force_inspi: bool = False,
     send: bool = True,
+    origine: str = "",
 ) -> dict:
     mem = Memoire(racine)
     state = mem.load_state()
@@ -464,6 +834,11 @@ def run(
         prenom=profile.get("prenom") or str(cfg.get("prenom") or "").strip(),
     )
     ctx.wants_inspi = force_inspi
+    ctx.origine = origine
+    ctx.settings = mem.load_reglages()
+    if origine == "sonnette":  # la sonnette m'a lancé : elle est installée et vivante
+        ctx.settings["sonnette_vue"] = now.isoformat(timespec="seconds")
+        ctx.settings_changed = True
 
     try:
         updates = bot.get_updates(offset=state["offset"] or None)
@@ -488,6 +863,13 @@ def run(
     process_queue(ctx)
     retry_pending_extractions(ctx)
     maybe_question(ctx)
+    if int(ctx.settings.get("journal_offset") or 0) != int(state["offset"]):
+        # La sonnette lit cette valeur : elle sait ainsi quels messages sont déjà traités (Telegram, lui, ne les
+        # oublie qu'au passage suivant) et ne relance pas le journal pour rien.
+        ctx.settings["journal_offset"] = int(state["offset"])
+        ctx.settings_changed = True
+    if ctx.settings_changed:
+        mem.save_reglages(ctx.settings)
     mem.save_state(state)  # tout est rangé avant d'écrire à Telegram
     sent = flush(ctx)
     mem.save_state(state)  # numéro du message-question, date de la question du soir
@@ -520,7 +902,8 @@ def main(argv: list[str] | None = None) -> int:
     minutes = float((cfg.get("journal") or {}).get("duree_max_min", 14))
     with tempfile.TemporaryDirectory(prefix="journal-") as tmp:
         summary = run(bot, racine, cfg, keys, now, tmp=Path(tmp), deadline=time.time() + minutes * 60,
-                      force_inspi=args.inspi, send=not args.no_send)
+                      force_inspi=args.inspi, send=not args.no_send,
+                      origine=os.environ.get("JOURNAL_ORIGINE", "").strip()[:20])
     if summary.get("alerte"):  # le travail déjà fait est gardé, mais on le fait savoir (GitHub t'envoie un mail)
         print("⚠️ " + summary["alerte"])
         return 2

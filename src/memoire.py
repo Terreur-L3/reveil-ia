@@ -8,10 +8,13 @@ memoire/
   anniversaires_auto.yaml      anniversaires entendus dans tes messages
   rappels_auto.yaml            échéances entendues dans tes messages
   questions.jsonl              les questions « Inspi » posées, et à quelle entrée tu as répondu
+  consignes.yaml               comment tu veux que je te parle (ton, longueur…), dit dans le chat
+  reglages.json                l'heure du réveil, la durée et la voix du podcast (lu aussi par la sonnette)
+  emploi_du_temps.yaml         tes cours, lus sur une photo ou écrits dans le chat
   _etat/telegram.json          où en est le bot (ne pas toucher)
 
 Tes fichiers écrits à la main (anniversaires.yaml, rappels.yaml, moi.yaml) restent à toi et gagnent toujours.
-L'audio n'est jamais conservé : seulement le texte.
+L'audio et les images ne sont jamais conservés : seulement le texte qu'on en tire.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from . import reglages as reglages_mod
 from .fr import duree_fr
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -45,6 +49,7 @@ STATE_DEFAULT = {
 }
 REMINDER_KEEP_DAYS = 30
 MAX_AIME, MAX_CANDIDATS = 40, 60
+MAX_CONSIGNES = 25
 
 
 def norm(text) -> str:
@@ -117,6 +122,9 @@ class Memoire:
         self.p_interets = self.dir / "interets.yaml"
         self.p_anniv = self.dir / "anniversaires_auto.yaml"
         self.p_rappels = self.dir / "rappels_auto.yaml"
+        self.p_consignes = self.dir / "consignes.yaml"
+        self.p_reglages = self.dir / "reglages.json"
+        self.p_edt = self.dir / "emploi_du_temps.yaml"
         self.p_etat = self.dir / "_etat" / "telegram.json"
 
     # ----- état du bot
@@ -146,7 +154,7 @@ class Memoire:
         append_jsonl(self.p_entrees, entry)
         day = self.dir / "journal" / entry["date"][:4] / f"{entry['date']}.md"
         head = "" if day.exists() else f"# {entry['date']}\n"
-        kind = "vocal" if entry.get("type") == "vocal" else "texte"
+        kind = entry.get("type") if entry.get("type") in ("vocal", "image") else "texte"
         title = f"{entry.get('heure', '')} · {kind}" + (f" · {duree_fr(entry['duree_s'])}" if entry.get("duree_s") else "")
         block = f"\n## {title}\n"
         if question_text:
@@ -276,6 +284,57 @@ class Memoire:
         _write_yaml(self.p_interets, out, _HEADER_INTERETS)
         return [e["sujet"] for e in out["aime"] if norm(e["sujet"]) not in before]
 
+    # ----- réglages (réveil, voix…) et emploi du temps
+    def load_reglages(self) -> dict:
+        return reglages_mod.load(self.p_reglages)
+
+    def save_reglages(self, settings: dict) -> None:
+        reglages_mod.save(self.p_reglages, settings)
+
+    # ----- consignes : comment tu veux que je te parle
+    def consignes(self) -> list[dict]:
+        return [c for c in _read_yaml(self.p_consignes, []) if isinstance(c, dict) and c.get("texte")]
+
+    def add_consigne(self, texte: str, portee: str, day: str, source: str, prive: bool = False) -> bool:
+        texte = re.sub(r"\s+", " ", re.sub(r"\[\[|\]\]|https?://\S+", "", str(texte or ""))).strip()[:160]
+        if len(texte) < 6:
+            return False
+        entries = self.consignes()
+        if any(norm(c["texte"]) == norm(texte) for c in entries):
+            return False
+        entry = {"texte": texte, "portee": portee if portee in ("podcast", "questions", "tout") else "tout",
+                 "date": day, "source": source}
+        if prive:
+            entry["prive"] = True
+        entries.append(entry)
+        _write_yaml(self.p_consignes, entries[-MAX_CONSIGNES:], _HEADER_CONSIGNES)
+        return True
+
+    def remove_consigne(self, number: int) -> dict | None:
+        """Retire la consigne n° `number` (1 = la première de la liste affichée par /consignes)."""
+        entries = self.consignes()
+        if not 1 <= number <= len(entries):
+            return None
+        gone = entries.pop(number - 1)
+        _write_yaml(self.p_consignes, entries, _HEADER_CONSIGNES)
+        return gone
+
+    def consignes_for(self, scope: str, *, allow_private: bool) -> list[str]:
+        """Les consignes qui concernent « podcast » ou « questions ».
+
+        `allow_private=False` (rédaction du podcast, qui peut passer par Gemini) : on écarte celles que l'IA ou
+        la liste de sujets sensibles a jugées personnelles. Elles restent dans la liste et servent aux questions."""
+        from .extract import is_sensitive  # import tardif : extract importe déjà ce module
+
+        out = []
+        for c in self.consignes():
+            if c.get("portee", "tout") not in (scope, "tout"):
+                continue
+            if not allow_private and (c.get("prive") or is_sensitive(c["texte"])):
+                continue
+            out.append(c["texte"])
+        return out
+
     # ----- questions « Inspi »
     def questions(self) -> list[dict]:
         return read_jsonl(self.p_questions)
@@ -310,7 +369,9 @@ class Memoire:
         return next((q for q in self.questions() if q.get("id") == question_id), None)
 
     # ----- application d'une extraction
-    def apply_extraction(self, entry: dict, ex: "Extraction", today: date) -> dict:
+    def apply_extraction(self, entry: dict, ex: "Extraction", today: date, settings: dict | None = None) -> dict:
+        """Range ce que l'IA a extrait. `settings` = les réglages que l'appelant tient déjà en mémoire et écrira lui-même
+        à la fin (sinon on les relirait ici, puis il écraserait notre changement avec sa copie plus ancienne)."""
         source = f"journal {entry['date']}"
         report = {"faits": self.add_facts(ex.faits, entry["id"], entry["date"]), "anniversaires": [], "rappels": []}
         for b in ex.anniversaires:
@@ -321,6 +382,20 @@ class Memoire:
             if self.add_reminder(r["texte"], r["date"], source, today):
                 report["rappels"].append(r)
         report["promus"] = self.merge_interests(ex.aime, ex.evite, entry["date"])
+        report["consignes"] = [
+            c for c in ex.consignes
+            if self.add_consigne(c["texte"], c.get("portee", "tout"), entry["date"], source, bool(c.get("sensible")))
+        ]
+        report["reglages"] = []
+        if ex.reglages:
+            own = settings is None
+            current = self.load_reglages() if own else settings
+            for r in ex.reglages:
+                valid = reglages_mod.validate_setting(r.get("cle"), r.get("valeur"))
+                if valid:
+                    report["reglages"].append(reglages_mod.set_podcast(current, *valid))
+            if report["reglages"] and own:
+                self.save_reglages(current)
         self.update_entry(entry["id"], resume=ex.resume, extrait=True)
         return report
 
@@ -342,6 +417,7 @@ class Memoire:
             "evite": interets["evite"],
             "questions": len(questions),
             "repondues": sum(1 for q in questions if q.get("repondue_par")),
+            "consignes": len(self.consignes()),
         }
 
     def digest(self, recent_facts: int = 15, recent_entries: int = 5, recent_questions: int = 12) -> str:
@@ -375,6 +451,10 @@ _HEADER_ANNIV = (
 _HEADER_RAPPELS = (
     "Géré automatiquement par ton journal vocal : tu peux corriger ce fichier à la main.\n"
     "Les rappels dépassés depuis plus d'un mois sont effacés."
+)
+_HEADER_CONSIGNES = (
+    "Géré par ton journal vocal : tes consignes sur la façon de te parler (/consignes pour les voir, /oublier N pour en retirer).\n"
+    "portee : podcast, questions ou tout. prive : true = jamais envoyée à Gemini (seulement à Groq). Tu peux corriger ce fichier à la main."
 )
 _HEADER_INTERETS = (
     "Géré automatiquement par ton journal vocal.\n"

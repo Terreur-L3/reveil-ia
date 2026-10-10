@@ -5,6 +5,7 @@ branchés dessus en remplaçant leurs adresses.
 """
 from __future__ import annotations
 
+import base64
 import email
 import email.policy
 import json
@@ -103,6 +104,29 @@ def rss_xml(name: str, items: list[dict]) -> str:
         )
     out.append("</channel></rss>")
     return "".join(out)
+
+
+def fake_jpeg(tag: str = "") -> bytes:
+    """Des octets qui commencent comme un JPEG (c'est tout ce que le programme vérifie avant d'envoyer)."""
+    return b"\xff\xd8\xff\xe0" + f"IMG[{tag}]".encode() + b"\0" * 120
+
+
+def fake_png(tag: str = "") -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + f"IMG[{tag}]".encode() + b"\0" * 120
+
+
+def timetable_reading(week: str | None = None, days=("lun", "mar", "mer", "jeu", "ven")) -> dict:
+    """Ce que le « modèle de vision » lit sur un emploi du temps d'école."""
+    return {
+        "type": "emploi_du_temps", "description": "Emploi du temps de la semaine", "texte": "",
+        "semaine_du": week, "jours_vus": list(days),
+        "cours": [
+            {"jour": "lun", "debut": "09:00", "fin": "12:30", "intitule": "Étalonnage", "salle": "204", "enseignant": "M. Durand"},
+            {"jour": "lun", "debut": "14:00", "fin": "17:00", "intitule": "Prise de vue", "salle": "Studio B", "enseignant": None},
+            {"jour": "mar", "debut": "10:00", "fin": "12:00", "intitule": "Histoire du cinéma", "salle": None, "enseignant": None},
+            {"jour": "jeu", "debut": "09:30", "fin": "13:00", "intitule": "Montage", "salle": "Salle 12", "enseignant": None},
+        ],
+    }
 
 
 def gemini_reply(text: str) -> dict:
@@ -204,6 +228,14 @@ class World:
         self.tg_sent: list[dict] = []
         self.tg_fail: dict[str, int] = {}
         self.tg_conflict = False
+        # Groq vision : ce que le « modèle » lit sur les images (dict, texte JSON, ou fonction (texte, images) → dict)
+        self.vision_reading = None
+        self.vision_fn = self.smart_vision
+        self.vision_calls: list[dict] = []               # {"model", "text", "images": [(mime, octets)]}
+        # GitHub : lancements de workflows
+        self.gh_dispatches: list[dict] = []
+        self.gh_fail = 0                                  # code HTTP à renvoyer (0 = tout va bien)
+        self.gh_ok_status = 204                           # réussite : 204 sans corps, ou 200 avec le détail du lancement
         self._tg_message_id = 1000
         self._tg_update_id = 500
         self.server: ThreadingHTTPServer | None = None
@@ -250,6 +282,32 @@ class World:
                  "mime_type": "audio/ogg", "file_size": len(data)}
         return self._push_update({"voice": voice}, reply_to=reply_to, ts=ts)
 
+    def user_photo(self, data: bytes, *, caption: str | None = None, ts: int | None = None, file_id: str | None = None,
+                   chat: int | None = None) -> int:
+        """Une photo envoyée « comme photo » : Telegram la fournit en plusieurs tailles (la plus grande en dernier)."""
+        file_id = file_id or f"photo{self._tg_update_id + 1}"
+        self.tg_files[file_id] = data
+        sizes = [
+            {"file_id": file_id + "-s", "file_unique_id": "s" + file_id, "width": 90, "height": 60,
+             "file_size": max(1, len(data) // 10)},
+            {"file_id": file_id, "file_unique_id": "u" + file_id, "width": 1280, "height": 853, "file_size": len(data)},
+        ]
+        content: dict = {"photo": sizes}
+        if caption:
+            content["caption"] = caption
+        return self._push_update(content, ts=ts, chat=chat)
+
+    def user_file(self, data: bytes, name: str, mime: str, *, caption: str | None = None, ts: int | None = None,
+                  file_id: str | None = None) -> int:
+        """Un fichier envoyé « en tant que fichier » (image non compressée, PDF…)."""
+        file_id = file_id or f"doc{self._tg_update_id + 1}"
+        self.tg_files[file_id] = data
+        content: dict = {"document": {"file_id": file_id, "file_unique_id": "u" + file_id, "file_name": name,
+                                      "mime_type": mime, "file_size": len(data)}}
+        if caption:
+            content["caption"] = caption
+        return self._push_update(content, ts=ts)
+
     def _push_update(self, content: dict, *, reply_to=None, chat=None, ts=None) -> int:
         self._tg_update_id += 1
         self._tg_message_id += 1
@@ -292,6 +350,8 @@ class World:
             return self._json(status, payload, lambda t: {"text": t})
         if path.startswith("/telegram/"):
             return self.telegram(req, path[len("/telegram/"):])
+        if path.startswith("/github/"):
+            return self.github(req, path[len("/github/"):])
         return 404, {}, b"unknown route " + path.encode()
 
     @staticmethod
@@ -343,7 +403,8 @@ class World:
         if method == "sendMessage":
             self._tg_message_id += 1
             self.tg_sent.append({"method": "sendMessage", "text": body.get("text", ""),
-                                 "markup": body.get("reply_markup"), "message_id": self._tg_message_id})
+                                 "markup": body.get("reply_markup"), "message_id": self._tg_message_id,
+                                 "silent": bool(body.get("disable_notification"))})
             return ok({"message_id": self._tg_message_id, "chat": {"id": body.get("chat_id")}, "text": body.get("text")})
         if method == "sendVoice":
             fields = req.multipart()
@@ -351,12 +412,41 @@ class World:
             name, data = fields.get("voice", ("", b""))
             self.tg_sent.append({"method": "sendVoice", "caption": fields.get("caption", ""), "bytes": len(data),
                                  "filename": name, "chat_id": fields.get("chat_id"), "duration": fields.get("duration"),
-                                 "message_id": self._tg_message_id})
+                                 "message_id": self._tg_message_id,
+                                 "silent": fields.get("disable_notification") == "true"})
             return ok({"message_id": self._tg_message_id, "chat": {"id": int(fields.get("chat_id", 0))}})
         if method == "setMyCommands":
             self.tg_sent.append({"method": "setMyCommands", "commands": body.get("commands")})
             return ok(True)
         return err(404, f"Not Found: method {method}")
+
+    # ----- GitHub
+    def github(self, req: Req, rest: str):
+        parts = rest.split("/")
+        # repos/<proprio>/<dépôt>/actions/workflows/<fichier>/dispatches
+        if len(parts) == 7 and parts[0] == "repos" and parts[3:5] == ["actions", "workflows"] and parts[6] == "dispatches":
+            body = req.json or {}
+            if self.gh_fail:
+                return self.gh_fail, {"Content-Type": "application/json"}, json.dumps({"message": "Resource not accessible"}).encode()
+            self.gh_dispatches.append({
+                "repo": f"{parts[1]}/{parts[2]}", "workflow": parts[5], "ref": body.get("ref"),
+                "inputs": body.get("inputs") or {}, "auth": req.headers.get("Authorization", ""),
+            })
+            if self.gh_ok_status == 204:
+                return 204, {}, b""
+            details = {"workflow_run_id": 1234567, "run_url": "https://api.github.com/repos/x/y/actions/runs/1234567",
+                       "html_url": "https://github.com/x/y/actions/runs/1234567"}
+            return self.gh_ok_status, {"Content-Type": "application/json"}, json.dumps(details).encode()
+        return 404, {}, b"{}"
+
+    # ----- Groq vision (message utilisateur = liste : texte + images)
+    def smart_vision(self, req: Req, model: str, body: dict, text: str, images: list[tuple[str, bytes]]):
+        reading = self.vision_reading
+        if callable(reading):
+            reading = reading(text, images)
+        if reading is None:
+            reading = {"type": "autre", "description": "Une image", "texte": "", "semaine_du": None, "jours_vus": [], "cours": []}
+        return 200, reading if isinstance(reading, str) else json.dumps(reading, ensure_ascii=False)
 
     # ----- Groq transcription
     def smart_stt(self, req: Req, fields: dict):
@@ -372,7 +462,18 @@ class World:
 
     def smart_groq(self, req: Req, model: str, body: dict):
         msgs = {m["role"]: m["content"] for m in body["messages"]}
-        return 200, self.answer(msgs.get("system", ""), msgs.get("user", ""))
+        user = msgs.get("user", "")
+        if isinstance(user, list):  # message avec images : [{"type": "text"}, {"type": "image_url", ...}]
+            text = "\n".join(p.get("text", "") for p in user if p.get("type") == "text")
+            images = []
+            for part in user:
+                if part.get("type") == "image_url":
+                    url = part["image_url"]["url"]
+                    head, _, payload = url.partition(",")
+                    images.append((head[len("data:"):].split(";")[0], base64.b64decode(payload)))
+            self.vision_calls.append({"model": model, "text": text, "images": images})
+            return self.vision_fn(req, model, body, text, images)
+        return 200, self.answer(msgs.get("system", ""), user)
 
     def answer(self, system: str, prompt: str) -> str:
         if "rédacteur en chef" in system:

@@ -91,9 +91,13 @@ def pick_from_bank(mem: Memoire) -> dict | None:
     return {"texte": text, "categorie": cat, "origine": "banque", "banque_id": qid}
 
 
-def ask_ai(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, pacer, prenom: str, pending: str) -> dict | None:
+def ask_ai(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, pacer, prenom: str, pending: str,
+           consignes: list[str] | None = None) -> dict | None:
     previous = [q.get("texte", "") for q in mem.questions()]
     system = SYSTEM.replace("<<prenom>>", prenom or "la personne")
+    if consignes:
+        system += "\n\nConsignes de " + (prenom or "la personne") + " sur la façon de lui poser des questions (à respecter) :\n" \
+            + "\n".join(f"- {c}" for c in consignes[:8])
     prompt = f"Moment : {date_fr(now)}, {now.hour} h.\n\n{mem.digest()}"
     if pending:
         prompt += f"\n\nLa dernière question est restée sans réponse : « {pending} » — pose-en une autre."
@@ -116,18 +120,18 @@ def ask_ai(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, pacer, 
 
 
 def make_question(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, *, pacer=None,
-                  prenom: str = "", pending: str = "") -> dict:
+                  prenom: str = "", pending: str = "", consignes: list[str] | None = None) -> dict:
     """Une question prête à poser : {texte, categorie, origine[, banque_id]}. Ne lève jamais d'exception."""
     use_ai_first = mem.stats()["faits"] >= MIN_FACTS_FOR_AI
     if use_ai_first:
-        q = ask_ai(mem, cfg, keys, now, pacer, prenom, pending)
+        q = ask_ai(mem, cfg, keys, now, pacer, prenom, pending, consignes)
         if q:
             return q
     q = pick_from_bank(mem)
     if q:
         return q
     if not use_ai_first:  # banque épuisée avant d'avoir assez d'infos : on tente l'IA quand même
-        q = ask_ai(mem, cfg, keys, now, pacer, prenom, pending)
+        q = ask_ai(mem, cfg, keys, now, pacer, prenom, pending, consignes)
         if q:
             return q
     return {"texte": GENERIC, "categorie": "autre", "origine": "secours"}

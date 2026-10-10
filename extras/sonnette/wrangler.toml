@@ -1,0 +1,20 @@
+# Seulement si tu préfères la ligne de commande (npm i -g wrangler). Avec le tableau de bord Cloudflare, ce fichier ne sert à rien.
+name = "reveil-sonnette"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REMPLACE_PAR_L_IDENTIFIANT_DE_TON_KV"
+
+[vars]
+REPO = "Terreur-L3/reveil-ia"
+BRANCH = "main"
+TELEGRAM_CHAT_ID = "REMPLACE_PAR_TON_IDENTIFIANT_TELEGRAM"
+TZ = "Europe/Paris"
+LEAD_MIN = "15"
+
+# Les secrets (jamais dans ce fichier) : wrangler secret put GITHUB_TOKEN | TELEGRAM_BOT_TOKEN | SECRET | RING_URL

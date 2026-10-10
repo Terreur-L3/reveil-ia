@@ -58,9 +58,26 @@ class TestNormalize(unittest.TestCase):
         d = telegram.normalize(self.upd(document={"file_id": "D", "file_name": "memo.m4a", "mime_type": "audio/mp4"}), self.chat)
         self.assertEqual(d.kind, "audio")
 
+    def test_images_and_other_files(self):
+        sizes = [{"file_id": "small", "width": 90, "height": 60, "file_size": 1500},
+                 {"file_id": "big", "width": 1280, "height": 853, "file_size": 150_000},
+                 {"file_id": "mid", "width": 800, "height": 533, "file_size": 60_000}]
+        p = telegram.normalize(self.upd(photo=sizes, caption="mon emploi du temps"), self.chat)
+        self.assertEqual((p.kind, p.file_id, p.text, p.mime), ("image", "big", "mon emploi du temps", "image/jpeg"))  # la plus grande
+        self.assertEqual(telegram.normalize(self.upd(photo=[{"file_id": "P"}]), self.chat).file_id, "P")
+        no_size = [{"file_id": "tiny", "width": 90, "height": 60, "file_size": 5000}, {"file_id": "large", "width": 1280, "height": 853}]
+        self.assertEqual(telegram.normalize(self.upd(photo=no_size), self.chat).file_id, "large")  # file_size est facultatif
+        png = telegram.normalize(self.upd(document={"file_id": "D", "file_name": "edt.png", "mime_type": "image/png"}), self.chat)
+        self.assertEqual((png.kind, png.mime, png.name), ("image", "image/png", "edt.png"))
+        heic = telegram.normalize(self.upd(document={"file_id": "H", "file_name": "IMG_0042.HEIC"}), self.chat)
+        self.assertEqual(heic.kind, "image")                                                     # reconnue à l'extension
+        pdf = telegram.normalize(self.upd(document={"file_id": "D", "file_name": "cv.pdf", "mime_type": "application/pdf"}), self.chat)
+        self.assertEqual((pdf.kind, pdf.name), ("autre", "cv.pdf"))                              # reconnu, mais je ne sais pas le lire
+        self.assertIsNone(telegram.normalize(self.upd(photo=[]), self.chat))
+        self.assertIsNone(telegram.normalize(self.upd(photo=[{"width": 5}]), self.chat))
+
     def test_ignored(self):
-        self.assertIsNone(telegram.normalize(self.upd(photo=[{"file_id": "P"}]), self.chat))
-        self.assertIsNone(telegram.normalize(self.upd(document={"file_id": "D", "file_name": "cv.pdf", "mime_type": "application/pdf"}), self.chat))
+        self.assertIsNone(telegram.normalize(self.upd(sticker={"file_id": "S"}), self.chat))
         self.assertIsNone(telegram.normalize(self.upd(text="salut"), 999))                       # autre conversation
         self.assertIsNone(telegram.normalize(self.upd(text="x", chat={"id": self.chat, "type": "group"}), self.chat))
         self.assertIsNone(telegram.normalize(self.upd(text="x", **{"from": {"id": 1, "is_bot": True}}), self.chat))
@@ -540,7 +557,7 @@ class TestJournalText(JournalCase):
 
     def test_unknown_chat_and_unsupported_content_are_ignored(self):
         self.text("coucou", chat=999)
-        self.world._push_update({"photo": [{"file_id": "P"}]})
+        self.world._push_update({"sticker": {"file_id": "S"}})
         summary = self.run_once()
         self.assertEqual(summary["ignores"], 2)
         self.assertEqual((self.mem.entries(), self.world.tg_sent), ([], []))
@@ -820,11 +837,13 @@ class TestJournalCommands(JournalCase):
         self.text("/start")
         self.run_once()
         (welcome,) = self.world.sent("sendMessage")
-        self.assertIn("journal vocal", welcome["text"])
-        labels = [b["text"] for b in welcome["markup"]["keyboard"][0]]
-        self.assertEqual(labels, [telegram.BTN_INSPI, telegram.BTN_MEMOIRE])
+        for expected in ("Vocaux", "emploi du temps", "/reveil", "/consignes", "/podcast"):
+            self.assertIn(expected, welcome["text"])
+        rows = [[b["text"] for b in row] for row in welcome["markup"]["keyboard"]]
+        self.assertEqual(rows, [[telegram.BTN_INSPI, telegram.BTN_MEMOIRE], [telegram.BTN_REVEIL, telegram.BTN_COURS]])
         (menu,) = self.world.sent("setMyCommands")
-        self.assertEqual({c["command"] for c in menu["commands"]}, {"inspi", "memoire", "aide"})
+        self.assertEqual({c["command"] for c in menu["commands"]},
+                         {"inspi", "reveil", "cours", "podcast", "consignes", "reglages", "memoire", "aide"})
 
     def test_unknown_command(self):
         self.text("/zzz")

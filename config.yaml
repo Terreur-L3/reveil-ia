@@ -25,6 +25,11 @@ llm:
   prive:          # journal vocal : extraction des infos, questions « Inspi » (Groq uniquement, quotas séparés par modèle)
     - {fournisseur: groq, modele: openai/gpt-oss-120b, extra: {reasoning_effort: low, max_completion_tokens: 3000}}
     - {fournisseur: groq, modele: openai/gpt-oss-20b, extra: {reasoning_effort: low, max_completion_tokens: 3000}}
+  vision:         # lecture de tes images (emploi du temps, documents) : Groq UNIQUEMENT, jamais Gemini
+    # qwen3.8 est le seul modèle d'images de Groq à ce jour (Llama 4 Scout a été retiré en juillet 2026) : la 2e ligne
+    # est la même chose sans options de raisonnement, au cas où Groq les refuserait. Une image à la fois (3 au plus).
+    - {fournisseur: groq, modele: qwen/qwen3.8-27b, extra: {reasoning_effort: low, reasoning_format: hidden, max_completion_tokens: 8000}}
+    - {fournisseur: groq, modele: qwen/qwen3.8-27b, extra: {max_completion_tokens: 8000}}
 
 # ----- Choix des sujets : ce qui entre (ou pas) dans les 2 minutes -----
 tri:
@@ -43,7 +48,15 @@ tri:
 perso:
   anniversaires_jours_avant: [7, 1, 0]
   rappels_jours_avant: [3, 1, 0]
-  max_lignes: 4
+  max_lignes: 4              # 0 = pas de segment perso du tout
+  cours: true                # dire tes cours du jour (lus sur ton emploi du temps, voir /cours dans Telegram)
+  consignes_dans_podcast: true   # tes consignes de style (/consignes) accompagnent l'écriture du podcast
+
+# ----- Réveil : le téléphone joue reveil.mp3 à l'heure choisie (/reveil dans Telegram) -----
+reveil:
+  sonnerie: true             # reveil.mp3 = petite sonnerie + podcast (latest.mp3 = le podcast seul, envoyé dans Telegram)
+  sonnerie_s: 10             # durée de la sonnerie en secondes
+  sonnerie_secours_s: 45     # sonnerie.mp3 : sonnerie seule, jouée si le podcast du jour n'est pas prêt à l'heure du réveil
 
 # ----- Actus (RSS) : ajoute / retire des lignes pour changer tes sources -----
 actu:

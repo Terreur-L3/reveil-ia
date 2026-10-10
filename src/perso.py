@@ -1,7 +1,7 @@
-"""Infos perso simples (anniversaires, rappels) : dites par le programme, jamais envoyées à une IA.
+"""Infos perso simples (anniversaires, rappels, cours du jour) : dites par le programme, jamais envoyées à une IA.
 
 Les phrases sont fabriquées ici, avec des modèles de texte, puis insérées dans le podcast.
-Aucun nom ni aucune date de ces fichiers ne part vers Gemini ou Groq.
+Aucun nom, aucune date et aucun cours de ces fichiers ne part vers Gemini ou Groq.
 """
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 import yaml
+
+from . import edt
 
 log = logging.getLogger(__name__)
 
@@ -187,5 +189,15 @@ def build_segment(racine: Path, cfg: dict | None, today: date) -> tuple[str, int
         birthdays, today, _int_set(cfg.get("anniversaires_jours_avant"), {7, 1, 0})
     ) + reminder_events(reminders, today, _int_set(cfg.get("rappels_jours_avant"), {3, 1, 0}))
     events.sort(key=lambda ev: (ev.delta, ev.kind != "anniversaire", ev.text))
-    events = events[: int(cfg.get("max_lignes", 4))]
-    return " ".join(ev.text for ev in events), len(events)
+    max_lines = int(cfg.get("max_lignes", 4))
+    events = events[:max_lines]
+    sentences = [ev.text for ev in events]
+    if max_lines > 0 and cfg.get("cours", True):  # « max_lignes: 0 » coupe tout le segment perso
+        try:
+            courses = edt.spoken(edt.load(mem / "emploi_du_temps.yaml"), today)
+        except Exception as exc:  # un fichier abîmé ne doit jamais empêcher le podcast
+            log.warning("Emploi du temps ignoré : %s", exc)
+            courses = ""
+        if courses:
+            sentences.append(courses)
+    return " ".join(sentences), len(sentences)

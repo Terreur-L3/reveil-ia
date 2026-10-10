@@ -621,6 +621,9 @@ class TestShippedFiles(unittest.TestCase):
         for chain in ("tri", "ecriture", "prive"):
             self.assertTrue(cfg["llm"][chain], chain)
         self.assertTrue(all(e["fournisseur"] == "groq" for e in cfg["llm"]["prive"]))  # vie privée : Groq seulement
+        self.assertTrue(cfg["llm"]["vision"])
+        self.assertTrue(all(e["fournisseur"] == "groq" for e in cfg["llm"]["vision"]))  # tes images ne partent qu'à Groq
+        self.assertNotIn("llama-4-scout", json.dumps(cfg["llm"]))                       # retiré par Groq en juillet 2026
         for feed in cfg["actu"]["flux"]:
             self.assertTrue(feed["url"].startswith("https://") and feed.get("nom") and feed.get("categorie"))
         self.assertEqual(yaml.safe_load((ROOT / "memoire" / "anniversaires.yaml").read_text(encoding="utf-8")), [])

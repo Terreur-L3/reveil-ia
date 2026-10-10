@@ -1,9 +1,25 @@
 name: Podcast du matin
 
+# Qui lance ce workflow ?
+#  - la « sonnette » Cloudflare (étape 8 du README) : quelques minutes avant ton réveil, à l'heure exacte ;
+#  - la commande /podcast dans Telegram, ou le bouton « Run workflow » ci-dessous ;
+#  - les deux horaires planifiés : GitHub peut les retarder de plusieurs heures, donc ils sont « gardés »
+#    (voir src/garde.py) : ils ne refont jamais un podcast déjà fait, et le premier s'efface si la sonnette s'en occupe.
+
 on:
   schedule:
-    - cron: "30 3 * * *"   # 03:30 UTC = 05:30 l'été / 04:30 l'hiver (heure de Paris)
-  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+    - cron: "17 3 * * *"   # tôt le matin : 05:17 l'été / 04:17 l'hiver (heure de Paris), si GitHub n'est pas en retard
+    - cron: "47 6 * * *"   # filet de sécurité de fin de matinée : ne fait quelque chose que si rien n'a été fait
+  workflow_dispatch:
+    inputs:
+      silencieux:
+        description: "Envoyer le podcast dans Telegram sans notification"
+        type: boolean
+        default: false
+      origine:
+        description: "Qui demande (sonnette, telegram, manuel)"
+        type: string
+        default: "manuel"
 
 permissions:
   contents: write           # pour publier le résultat sur la branche « podcast »
@@ -17,24 +33,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5     # récupère aussi memoire/ (anniversaires, rappels, centres d'intérêt appris)
+      - uses: actions/checkout@v5     # récupère aussi memoire/ (anniversaires, rappels, cours, réglages, consignes)
+
+      - name: Faut-il générer le podcast maintenant ?
+        id: garde
+        env:
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          if git fetch --depth=1 -q origin podcast 2>/dev/null; then
+            git show FETCH_HEAD:meta.json > "$RUNNER_TEMP/meta.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/meta.json"
+          else
+            echo '{}' > "$RUNNER_TEMP/meta.json"
+          fi
+          python3 -m src.garde --event "$EVENT" --cron "$CRON" --meta "$RUNNER_TEMP/meta.json" | tee -a "$GITHUB_OUTPUT"
 
       - name: Installer les dépendances
+        if: steps.garde.outputs.skip != 'true'
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet -r requirements.txt
 
       - name: Générer le podcast
         id: gen
+        if: steps.garde.outputs.skip != 'true'
         continue-on-error: true   # on publie quand même ce qui existe, même si une étape a raté
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PODCAST_SILENT: ${{ inputs.silencieux }}
+          PODCAST_ORIGINE: ${{ inputs.origine || (github.event_name == 'schedule' && 'cron') || 'manuel' }}
         run: .venv/bin/python -m src.main
 
       - name: Publier sur la branche « podcast » (sans accumuler d'historique)
+        if: steps.garde.outputs.skip != 'true'
         run: |
           if ls output/latest.* >/dev/null 2>&1; then
             cd output

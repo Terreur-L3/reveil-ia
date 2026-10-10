@@ -1,9 +1,11 @@
 name: Journal vocal
 
-# Toutes les 30 minutes dans la journée : lit ta conversation Telegram, transcrit les vocaux,
-# range ce que tu as dit dans memoire/ (puis l'enregistre dans le dépôt) et pose la question « Inspi ».
-# GitHub peut retarder ou sauter une exécution planifiée quand ses serveurs sont chargés : compte
-# plutôt « dans l'heure » que « à la minute ». Pour lancer tout de suite : onglet Actions → Journal vocal → Run workflow.
+# Toutes les 30 minutes dans la journée : lit ta conversation Telegram, transcrit les vocaux, lit tes images,
+# applique tes ordres (/reveil, /cours, /consignes…), range ce que tu as dit dans memoire/ (puis l'enregistre dans
+# le dépôt) et pose la question « Inspi ».
+# GitHub peut retarder ou sauter une exécution planifiée quand ses serveurs sont chargés : compte plutôt « dans
+# l'heure » que « à la minute ». Avec la « sonnette » Cloudflare (étape 8 du README), c'est elle qui lance ce
+# workflow dans la minute qui suit un message. À la main : onglet Actions → Journal vocal → Run workflow.
 
 on:
   schedule:
@@ -14,9 +16,14 @@ on:
         description: "Poser une question tout de suite (comme le bouton 💡 Inspi)"
         type: boolean
         default: false
+      origine:
+        description: "Qui demande (sonnette ou manuel)"
+        type: string
+        default: "manuel"
 
 permissions:
   contents: write            # pour enregistrer memoire/ dans le dépôt
+  actions: write             # pour la commande /podcast (elle lance le workflow « Podcast du matin »)
 
 concurrency:
   group: journal             # jamais deux passages en même temps (ils écriraient la même mémoire)
@@ -40,6 +47,8 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          JOURNAL_ORIGINE: ${{ inputs.origine }}
           INSPI: ${{ inputs.inspi }}
         run: |
           if [ "$INSPI" = "true" ]; then

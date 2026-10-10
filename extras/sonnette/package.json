@@ -1,0 +1,6 @@
+{
+  "name": "sonnette",
+  "private": true,
+  "type": "module",
+  "description": "La sonnette du réveil IA (Cloudflare Worker) : tests hors ligne avec « node --test »."
+}
