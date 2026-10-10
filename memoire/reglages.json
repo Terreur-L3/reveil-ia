@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "reveil": {
+    "actif": false,
+    "jours": {
+      "lun": null,
+      "mar": null,
+      "mer": null,
+      "jeu": null,
+      "ven": null,
+      "sam": null,
+      "dim": null
+    },
+    "ponctuel": {},
+    "maj": ""
+  },
+  "podcast": {
+    "minutes": null,
+    "voix": null,
+    "vitesse": null
+  },
+  "sonnette_vue": "",
+  "journal_offset": 176680274
+}
