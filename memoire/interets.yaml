@@ -27,6 +27,11 @@ aime:
   intensite: 3
   derniere: '2026-10-09'
   poids: 3
+- sujet: mode Minecraft WID
+  mentions: 1
+  intensite: 3
+  derniere: '2026-10-10'
+  poids: 3
 - sujet: cinéma
   mentions: 2
   intensite: 2

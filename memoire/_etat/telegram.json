@@ -1,17 +1,13 @@
 {
  "version": 1,
- "offset": 176680279,
+ "offset": 176680280,
  "file": [],
- "question_en_attente": {
-  "id": "q20261010-2218",
-  "date": "2026-10-10T22:18:31.015219+02:00",
-  "texte": "Quel mini‑projet récent avec l’IA Cloud t’a le plus enthousiasmé, et quelles étapes as‑tu trouvées les plus créatives ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-10",
  "stt_historique": [
   [
-   1791649355.2744417,
-   10.0
+   1791664282.6582983,
+   39.1465
   ]
  ],
  "extractions": {}
