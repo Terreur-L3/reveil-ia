@@ -24,6 +24,9 @@
                 SECRET              un mot de passe inventé (20 caractères ou plus, lettres et chiffres) : il fait partie
                                     des adresses de ce programme
                 RING_URL            (facultatif) l'adresse « webhook » de ta macro MacroDroid
+                AUTOMATE_SECRET     (facultatif) la clé « secret » générée sur llamalab.com/automate/cloud (pour Automate)
+                AUTOMATE_TO         (facultatif) l'e-mail du compte Google utilisé dans Automate
+                                    (si les deux sont réglés, Automate est utilisé à la place de RING_URL)
      Variables: TELEGRAM_CHAT_ID    ton identifiant Telegram (le même que dans GitHub)
                 REPO, BRANCH, TZ, LEAD_MIN, DOORBELL   (facultatifs, voir DEFAULTS ci-dessous)
      Stockage : un « KV namespace » relié au Worker sous le nom KV
@@ -39,7 +42,7 @@
    Le même fichier sert aux tests hors ligne : « cd extras/sonnette && node --test ».
    ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export const VERSION = "v4.0";
+export const VERSION = "v4.0-automate";
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
@@ -307,6 +310,8 @@ export function readConfig(env) {
     ghToken: clean(env.GITHUB_TOKEN),
     secret: clean(env.SECRET),
     ringUrl: /^https:\/\//i.test(ringUrl) ? ringUrl : "",
+    automateSecret: clean(env.AUTOMATE_SECRET),
+    automateTo: clean(env.AUTOMATE_TO),
     doorbell: ["fallback", "always", "never"].includes(doorbell) ? doorbell : DEFAULTS.DOORBELL,
   };
 }
@@ -375,7 +380,23 @@ async function telegram(cfg, method, payload) {
   return data.result;
 }
 
+const AUTOMATE_CLOUD_URL = "https://llamalab.com/automate/cloud/message";
+const useAutomate = (cfg) => Boolean(cfg.automateSecret && cfg.automateTo);
+/** Un moyen de faire sonner le téléphone est-il réglé ? (Automate ou webhook MacroDroid) */
+export const hasRing = (cfg) => useAutomate(cfg) || Boolean(cfg.ringUrl);
+
 async function callWebhook(cfg) {
+  if (useAutomate(cfg)) {
+    // « Message cloud » d'Automate : réveille le téléphone (priorité haute) et lui passe le mot « ring ».
+    const res = await fetch(AUTOMATE_CLOUD_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: cfg.automateSecret, to: cfg.automateTo, priority: "high", payload: "ring" }),
+      signal: timeout(8000),
+    });
+    if (!res.ok) throw new HttpError("automate", res.status);   // le message d'erreur ne contient jamais la clé
+    return;
+  }
   const res = await fetch(cfg.ringUrl, { method: "GET", redirect: "follow", signal: timeout(8000) });
   if (!res.ok) throw new HttpError("webhook", res.status);
 }
@@ -499,7 +520,7 @@ async function runEffect(env, cfg, now, effect, markers, meta) {
     const fresh = isFreshToday(meta, now, cfg.tz);
     const via = [];
     const errors = [];
-    if (cfg.ringUrl) {
+    if (hasRing(cfg)) {
       try { await callWebhook(cfg); via.push("webhook"); } catch (err) { errors.push(err.message); }
     }
     const wantBell = cfg.doorbell !== "never" && (cfg.doorbell === "always" || !via.includes("webhook"));
@@ -513,7 +534,7 @@ async function runEffect(env, cfg, now, effect, markers, meta) {
     if (!ok) {
       await alertOnce(env, cfg, now, "ring",
         `je n'ai pas pu faire sonner ton réveil de ${frTime(effect.hhmm)} (${errors.join(", ") || "aucun moyen configuré"}). `
-        + "Vérifie RING_URL et les clés dans Cloudflare.");
+        + "Vérifie RING_URL (ou AUTOMATE_SECRET et AUTOMATE_TO) et les clés dans Cloudflare.");
     }
     return ok ? via.join("+") : `échec : ${errors.join(", ")}`;
   }
@@ -703,6 +724,7 @@ async function statusPage(env, cfg, now) {
       bot_telegram: Boolean(cfg.tgToken),
       identifiant_telegram: Boolean(cfg.chatId),
       adresse_macrodroid: Boolean(cfg.ringUrl),
+      automate: useAutomate(cfg),
       kv: Boolean(env.KV),
       depot: cfg.repo,
       avance_podcast_min: cfg.leadMs / MIN,
@@ -721,9 +743,9 @@ async function testAction(env, cfg, now, what) {
   await kvPut(env, "rl:test", now, 120);
   try {
     if (what === "ring") {
-      if (!cfg.ringUrl) return jsonResponse({ ok: false, erreur: "RING_URL n'est pas réglé dans Cloudflare" }, 400);
+      if (!hasRing(cfg)) return jsonResponse({ ok: false, erreur: "ni RING_URL ni AUTOMATE_SECRET + AUTOMATE_TO ne sont réglés dans Cloudflare" }, 400);
       await callWebhook(cfg);
-      return jsonResponse({ ok: true, fait: "j'ai appelé l'adresse de MacroDroid : ton téléphone doit réagir dans quelques secondes" });
+      return jsonResponse({ ok: true, fait: `j'ai envoyé le signal (${useAutomate(cfg) ? "Automate" : "MacroDroid"}) : ton téléphone doit réagir dans quelques secondes` });
     }
     if (what === "doorbell") {
       if (!cfg.tgToken || !cfg.chatId) return jsonResponse({ ok: false, erreur: "TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manque" }, 400);
@@ -735,7 +757,7 @@ async function testAction(env, cfg, now, what) {
     await dispatchWorkflow(cfg, "podcast.yml", { silencieux: "true", origine: "sonnette" });
     return jsonResponse({ ok: true, fait: "podcast demandé : il arrive dans Telegram dans 3 à 5 minutes (onglet Actions de GitHub pour suivre)" });
   } catch (err) {
-    return jsonResponse({ ok: false, erreur: err.message, conseil: err.status === 404 || err.status === 403 || err.status === 401 ? "vérifie les droits du jeton GitHub (Actions : lecture et écriture)" : undefined }, 502);
+    return jsonResponse({ ok: false, erreur: err.message, conseil: err.service === "automate" ? "vérifie AUTOMATE_SECRET et AUTOMATE_TO (la clé doit venir de llamalab.com/automate/cloud, avec le même compte Google)" : (err.status === 404 || err.status === 403 || err.status === 401 ? "vérifie les droits du jeton GitHub (Actions : lecture et écriture)" : undefined) }, 502);
   }
 }
 
