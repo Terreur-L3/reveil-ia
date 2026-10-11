@@ -1,9 +1,13 @@
 {
  "version": 1,
- "offset": 176680283,
+ "offset": 176680284,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-10",
+ "question_en_attente": {
+  "id": "q20261011-2049",
+  "date": "2026-10-11T20:49:12.995947+02:00",
+  "texte": "Quel thème ou histoire as‑tu choisi pour le dernier podcast que tu as vocodé, et comment as‑tu intégré tes effets spéciaux ?"
+ },
+ "derniere_question_du_soir": "2026-10-11",
  "stt_historique": [
   [
    1791719744.8319116,
@@ -14,5 +18,6 @@
    10.0
   ]
  ],
- "extractions": {}
+ "extractions": {},
+ "dernier_essai_voix": "2026-10-11T20:49:12+02:00"
 }
