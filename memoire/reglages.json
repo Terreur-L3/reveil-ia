@@ -3,22 +3,22 @@
   "reveil": {
     "actif": true,
     "jours": {
-      "lun": "08:20",
-      "mar": "08:20",
-      "mer": "08:20",
-      "jeu": "08:20",
-      "ven": "08:20",
-      "sam": "08:20",
-      "dim": "08:20"
+      "lun": "08:30",
+      "mar": "08:30",
+      "mer": "08:30",
+      "jeu": "08:30",
+      "ven": "08:30",
+      "sam": "14:00",
+      "dim": "14:00"
     },
     "ponctuel": {},
-    "maj": "2026-10-10T14:45:13+02:00"
+    "maj": "2026-10-11T13:54:09+02:00"
   },
   "podcast": {
     "minutes": null,
     "voix": null,
     "vitesse": null
   },
-  "sonnette_vue": "2026-10-10T23:01:16+02:00",
-  "journal_offset": 176680281
+  "sonnette_vue": "2026-10-11T13:55:12+02:00",
+  "journal_offset": 176680283
 }
