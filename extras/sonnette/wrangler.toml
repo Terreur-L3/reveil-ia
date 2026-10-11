@@ -8,12 +8,12 @@ crons = ["* * * * *"]
 
 [[kv_namespaces]]
 binding = "KV"
-id = "REMPLACE_PAR_L_IDENTIFIANT_DE_TON_KV"
+id = "c16a56760f0d4b2f8f1483c134e2c461"
 
 [vars]
 REPO = "Terreur-L3/reveil-ia"
 BRANCH = "main"
-TELEGRAM_CHAT_ID = "REMPLACE_PAR_TON_IDENTIFIANT_TELEGRAM"
+TELEGRAM_CHAT_ID = "8923851509"
 TZ = "Europe/Paris"
 LEAD_MIN = "15"
 
