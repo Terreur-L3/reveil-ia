@@ -1,0 +1,311 @@
+# Géré par ton journal vocal : envoie une photo de ton emploi du temps au bot, ou écris /cours.
+# Tu peux aussi corriger ce fichier à la main. Un jour absent = inconnu ; un jour vide ([]) = pas de cours.
+mis_a_jour: '2026-10-11'
+semaine_type:
+  ven:
+  - debut: 09:30
+    cours: Gestion de Projet
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Reda SEDDAR
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Gestion de Projet
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Reda SEDDAR
+  lun:
+  - debut: 09:30
+    cours: Unreal
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Unreal
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  mar:
+  - debut: 09:30
+    cours: Pitch
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Christophe VILLEZ
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  jeu:
+  - debut: 09:30
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Cinématique Française
+    fin: '17:00'
+  mer:
+  - debut: 09:30
+    cours: RIG
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Alexandre GREGOIRE
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: RIG
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Alexandre GREGOIRE
+dates:
+  '2026-10-30':
+  - debut: 09:30
+    cours: Pitch
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Denis BRUSSEAUX
+  - debut: '14:00'
+    cours: Pitch
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Denis BRUSSEAUX
+  '2026-10-26':
+  - debut: 09:30
+    cours: Unreal
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  - debut: '14:00'
+    cours: Unreal
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  '2026-10-27':
+  - debut: 09:30
+    cours: DMP VFX
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  - debut: '14:00'
+    cours: DMP VFX
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  '2026-10-29':
+  - debut: 09:30
+    cours: EmberGen
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Ersan MUSA
+  - debut: '14:00'
+    cours: EmberGen
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Ersan MUSA
+  '2026-10-28':
+  - debut: 09:30
+    cours: Houdini
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  - debut: '14:00'
+    cours: Houdini
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  '2026-10-23':
+  - debut: 09:30
+    cours: DMP VFX
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  - debut: '14:00'
+    cours: DMP VFX
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  '2026-10-19':
+  - debut: 09:30
+    cours: Unreal
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  - debut: '14:00'
+    cours: Unreal
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  '2026-10-20':
+  - debut: 09:30
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 2
+    prof: Rudy CRETENET
+  - debut: '14:00'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 2
+    prof: Rudy CRETENET
+  '2026-10-22':
+  - debut: 09:30
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  - debut: '14:00'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  '2026-10-21':
+  - debut: 09:30
+    cours: Houdini
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  - debut: '14:00'
+    cours: Houdini
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  '2026-10-16':
+  - debut: '10:00'
+    cours: DMP VFX
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  - debut: '14:30'
+    cours: DMP VFX
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Benjamin BARDOU
+  - debut: '17:30'
+    cours: Analyse Filmique
+    fin: '21:00'
+    salle: Salle Cinéma
+    prof: Denis BRUSSEAUX
+  '2026-10-12':
+  - debut: '10:00'
+    cours: Chef Opérateur
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Bastien BRENOT
+  - debut: '14:30'
+    cours: Chef Opérateur
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Bastien BRENOT
+  '2026-10-13':
+  - debut: '10:00'
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Rudy CRETNET
+  - debut: '14:30'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Rudy CRETNET
+  '2026-10-15':
+  - debut: '10:00'
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Rudy CRETNET
+  - debut: '14:30'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Rudy CRETNET
+  '2026-10-14':
+  - debut: '10:00'
+    cours: Houdini
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  - debut: '14:30'
+    cours: Houdini
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Anthony LAGABBE
+  '2026-10-09':
+  - debut: 09:30
+    cours: Gestion de Projet
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Reda SEDDAR
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Gestion de Projet
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Reda SEDDAR
+  '2026-10-05':
+  - debut: 09:30
+    cours: Unreal
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Unreal
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Kevin BERTELLI
+  '2026-10-06':
+  - debut: 09:30
+    cours: Pitch
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Christophe VILLEZ
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Compositing Basics
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  '2026-10-08':
+  - debut: 09:30
+    cours: Compositing Basics
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Rudy CRETENET
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: Cinématique Française
+    fin: '17:00'
+  '2026-10-07':
+  - debut: 09:30
+    cours: RIG
+    fin: '12:30'
+    salle: Ciné 3
+    prof: Alexandre GREGOIRE
+  - debut: '12:30'
+    cours: Pause Déjeuner
+    fin: '14:00'
+  - debut: '14:00'
+    cours: RIG
+    fin: '17:00'
+    salle: Ciné 3
+    prof: Alexandre GREGOIRE
