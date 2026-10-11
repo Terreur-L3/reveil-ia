@@ -16,9 +16,9 @@
   },
   "podcast": {
     "minutes": null,
-    "voix": null,
+    "voix": "gemini:Achird",
     "vitesse": null
   },
   "sonnette_vue": "2026-10-11T20:49:12+02:00",
-  "journal_offset": 176680284
+  "journal_offset": 176680285
 }
