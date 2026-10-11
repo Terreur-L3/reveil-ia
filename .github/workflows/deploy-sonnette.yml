@@ -1,5 +1,6 @@
 name: Deploy sonnette
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ['extras/sonnette/**']
