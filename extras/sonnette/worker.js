@@ -34,6 +34,7 @@
 
    Les adresses de ce programme (toutes secrètes) :
      /p/<SECRET>/reveil.mp3        le fichier que joue le téléphone
+     /p/<SECRET>/echec             le téléphone dit « je n'ai pas pu jouer le son » : plan B tout de suite
      /status/<SECRET>              l'état en clair (prochain réveil, dernier podcast, réglages présents)
      /test/<SECRET>/ring           fait sonner le téléphone maintenant (essai)
      /test/<SECRET>/doorbell       envoie le message Telegram du plan B (essai)
@@ -42,7 +43,7 @@
    Le même fichier sert aux tests hors ligne : « cd extras/sonnette && node --test ».
    ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export const VERSION = "v4.0-automate";
+export const VERSION = "v4.1-automate";
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
@@ -695,7 +696,94 @@ async function servePodcast(env, cfg, now, method) {
     // Pas de « content-length » recopié : si GitHub compresse, la taille annoncée ne serait pas celle qu'on envoie.
     return new Response(method === "HEAD" ? null : res.body, { status: 200, headers });
   }
-  return jsonResponse({ erreur: "aucun fichier audio disponible", podcast_du_jour: fresh }, 404);
+  // Rien à jouer (GitHub injoignable, jeton refusé, branche « podcast » vide…). Le téléphone enregistrera ce message
+  // à la place d'un son : on prévient donc tout de suite dans Telegram (avec notification) au lieu d'attendre le plan B.
+  await notifyNothingToPlay(env, cfg, now, fresh);
+  return jsonResponse({ erreur: "aucun fichier audio disponible", podcast_du_jour: fresh, aide: "ouvre /status/<SECRET> : il dit ce qui ne va pas" }, 404);
+}
+
+async function notifyNothingToPlay(env, cfg, now, fresh) {
+  if (!cfg.tgToken || !cfg.chatId) return;
+  const last = await kvGet(env, "rl:rien");
+  if (last && now - last < 10 * MIN) return;          // une seule fois par tranche de 10 minutes
+  await kvPut(env, "rl:rien", now, 15 * 60);
+  await kvPut(env, "echec", now, 2 * 24 * 3600);
+  const z = zoned(now, cfg.tz);
+  try {
+    await sendDoorbell(cfg, `${pad(z.hh)}:${pad(z.mm)}`, fresh, false);
+  } catch (err) {
+    console.error("message de secours non envoyé", err?.message || "");
+  }
+}
+
+/** Le téléphone a téléchargé le fichier mais n'a pas réussi à le jouer (bloc « Sound play » en échec dans Automate) :
+ *  il appelle cette adresse et on envoie tout de suite le plan B (message Telegram avec notification). */
+async function phoneFailed(env, cfg, now) {
+  if (!cfg.tgToken || !cfg.chatId) return jsonResponse({ ok: false, erreur: "TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manque" }, 400);
+  const last = await kvGet(env, "rl:echec");
+  if (last && now - last < LIMITS.testEveryMs * 3) return jsonResponse({ ok: true, fait: "déjà prévenu à l'instant" });
+  await kvPut(env, "rl:echec", now, 120);
+  await kvPut(env, "echec", now, 2 * 24 * 3600);
+  const z = zoned(now, cfg.tz);
+  const meta = cfg.ghToken ? await loadMeta(cfg) : null;
+  try {
+    await sendDoorbell(cfg, `${pad(z.hh)}:${pad(z.mm)}`, isFreshToday(meta, now, cfg.tz), false);
+  } catch (err) {
+    return jsonResponse({ ok: false, erreur: err.message }, 502);
+  }
+  return jsonResponse({ ok: true, fait: "message envoyé dans Telegram (avec notification)" });
+}
+
+/** Essaie vraiment GitHub et Telegram, et dit en français ce qui ne va pas. Ne renvoie jamais de clé. */
+export async function diagnose(cfg) {
+  const out = { verifications: [], problemes: [] };
+  const add = (nom, ok, detail) => out.verifications.push({ nom, ok, detail });
+  const problem = (text) => out.problemes.push(text);
+  const status = async (fn) => { try { return await fn(); } catch (err) { return { status: 0, error: String(err?.message || err) }; } };
+
+  if (!cfg.ghToken) {
+    add("jeton GitHub", false, "absent");
+    problem("GITHUB_TOKEN manque dans Cloudflare (Settings → Variables and Secrets).");
+  } else {
+    const [repo, reglages, meta, listing, actions] = await Promise.all([
+      status(() => github(cfg, "GET", `/repos/${cfg.repo}`)),
+      status(() => repoFile(cfg, "memoire/reglages.json", cfg.branch)),
+      status(() => repoFile(cfg, "meta.json", "podcast")),
+      status(() => github(cfg, "GET", `/repos/${cfg.repo}/contents?ref=podcast`)),
+      status(() => github(cfg, "GET", `/repos/${cfg.repo}/actions/workflows/podcast.yml`)),
+    ]);
+    const code = (r) => (r.status === 0 ? `pas de réponse (${r.error})` : `GitHub répond ${r.status}`);
+    const files = listing.status === 200 ? (await listing.json().catch(() => [])).map((f) => f.name) : [];
+
+    add("dépôt visible avec ce jeton", repo.status === 200, code(repo));
+    if (repo.status === 401) problem("GitHub refuse le jeton (expiré, mal copié ou supprimé) : refais un jeton et remplace GITHUB_TOKEN dans Cloudflare.");
+    else if (repo.status === 404) problem(`GitHub ne voit pas le dépôt « ${cfg.repo} » avec ce jeton : à la création du jeton, « Repository access » doit être « Only select repositories » → ce dépôt (ou le nom REPO est faux).`);
+    else if (repo.status !== 200) problem(`GitHub ne répond pas normalement (${code(repo)}) : réessaie dans quelques minutes.`);
+
+    add("réglages (memoire/reglages.json) lisibles", reglages.status === 200 || reglages.status === 404,
+      reglages.status === 404 ? "fichier pas encore créé (aucun réveil réglé)" : code(reglages));
+    if (repo.status === 200 && ![200, 404].includes(reglages.status)) problem("Le jeton ne peut pas lire les fichiers : permission « Contents » à mettre sur « Read-only » (ou « Read and write »).");
+
+    add("podcast du jour (branche « podcast ») lisible", meta.status === 200, meta.status === 404 ? "pas encore de podcast publié" : code(meta));
+    add("sonnerie.mp3 présent", files.includes("sonnerie.mp3"), files.length ? `fichiers : ${files.join(", ")}` : code(listing));
+    add("droit de lancer le podcast (Actions)", actions.status === 200, code(actions));
+    if (repo.status === 200 && [401, 403, 404].includes(actions.status)) problem("Le jeton ne peut pas piloter les Actions : permission « Actions » à mettre sur « Read and write ».");
+    if (meta.status === 404 && repo.status === 200) problem("La branche « podcast » est vide : lance le workflow « Podcast du matin » une fois (onglet Actions → Run workflow).");
+    else if (listing.status === 200 && !files.includes("sonnerie.mp3")) problem("Il manque sonnerie.mp3 sur la branche « podcast » : relance le workflow « Podcast du matin ».");
+  }
+
+  if (!cfg.tgToken || !cfg.chatId) {
+    add("Telegram", false, "TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID absent");
+    problem("Cloudflare n'a pas la clé du bot ou ton identifiant Telegram (TELEGRAM_BOT_TOKEN en Secret, TELEGRAM_CHAT_ID en Variable) : sans eux, le plan B et le déclenchement du journal ne marchent pas.");
+  } else {
+    let ok = false; let detail = "";
+    try { await telegram(cfg, "getMe", {}); ok = true; detail = "le bot répond"; }
+    catch (err) { detail = `Telegram répond ${err.status || "?"}`; }
+    add("Telegram", ok, detail);
+    if (!ok) problem("Telegram refuse la clé du bot : vérifie TELEGRAM_BOT_TOKEN dans Cloudflare (la même que dans GitHub).");
+  }
+  if (!hasRing(cfg)) problem("Aucun moyen de faire sonner le téléphone (AUTOMATE_SECRET + AUTOMATE_TO, ou RING_URL).");
+  return out;
 }
 
 async function statusPage(env, cfg, now) {
@@ -705,6 +793,9 @@ async function statusPage(env, cfg, now) {
   const next = settings ? nextInstant(settings, cfg.tz, now) : null;
   const marker = next ? (await kvGet(env, `w:${next.id}`)) || {} : {};
   const tickAt = await kvGet(env, "tick");
+  const phone = await kvGet(env, "fl");        // dernier téléchargement par le téléphone
+  const phoneFail = await kvGet(env, "echec"); // dernière fois que le téléphone a dit « je n'ai pas pu jouer le son »
+  const clock = (ms) => { const t = zoned(ms, cfg.tz); return `${t.day} ${pad(t.hh)}:${pad(t.mm)}`; };
   const lines = [];
   if (next) {
     lines.push(`Prochain réveil : ${dayLabel(next.day)} à ${frTime(next.hhmm)} (dans ${Math.max(0, Math.round((next.at - now) / MIN))} min).`);
@@ -715,6 +806,9 @@ async function statusPage(env, cfg, now) {
   }
   lines.push(meta ? `Dernier podcast : ${meta.date}${isFreshToday(meta, now, cfg.tz) ? " (d'aujourd'hui)" : " (pas d'aujourd'hui)"}.` : "Aucun podcast publié pour l'instant.");
   lines.push(tickAt ? `Dernier passage de la sonnette : il y a ${Math.round((now - tickAt) / MIN)} min.` : "La sonnette n'a pas encore tourné (ajoute le cron « * * * * * »).");
+  const diag = await diagnose(cfg);
+  if (!diag.problemes.length) lines.unshift("✅ Les vérifications en direct (GitHub, Telegram, téléphone) sont bonnes.");
+  else lines.unshift(...diag.problemes.map((p) => `⚠️ ${p}`));
   return jsonResponse({
     version: VERSION,
     maintenant: `${z.day} ${pad(z.hh)}:${pad(z.mm)} (${cfg.tz})`,
@@ -730,9 +824,15 @@ async function statusPage(env, cfg, now) {
       avance_podcast_min: cfg.leadMs / MIN,
       plan_b: cfg.doorbell,
     },
+    verifications_en_direct: diag.verifications,
     prochain_reveil: next ? { id: next.id, podcast_lance: Boolean(marker.pod), sonnerie: marker.ring ?? null } : null,
     dernier_podcast: meta ? { date: meta.date, genere_a: meta.genere_a, mode: meta.mode, origine: meta.origine } : null,
     dernier_passage_ms: tickAt || null,
+    telephone: {
+      dernier_telechargement: phone ? clock(phone.at) : null,
+      fichier: phone ? ({ "reveil.mp3": "podcast + sonnerie", "latest.mp3": "podcast seul", "sonnerie.mp3": "sonnerie seule (podcast du jour pas prêt)" }[phone.file] || phone.file) : null,
+      dernier_echec_signale: phoneFail ? clock(phoneFail) : null,
+    },
   });
 }
 
@@ -767,6 +867,7 @@ export async function route(request, env, now = Date.now()) {
   if (parts.length < 2 || cfg.secret.length < 16 || !safeEqual(parts[1], cfg.secret)) return notFound();
   const [kind, , what] = parts;
   if (kind === "p" && parts.length === 3 && what === "reveil.mp3") return servePodcast(env, cfg, now, request.method);
+  if (kind === "p" && parts.length === 3 && what === "echec") return phoneFailed(env, cfg, now);
   if (kind === "status" && parts.length === 2) return statusPage(env, cfg, now);
   if (kind === "test" && parts.length === 3) return testAction(env, cfg, now, what);
   return notFound();
