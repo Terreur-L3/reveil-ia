@@ -1,0 +1,6 @@
+# Géré par ton journal vocal : tes consignes sur la façon de te parler (/consignes pour les voir, /oublier N pour en retirer).
+# portee : podcast, questions ou tout. prive : true = jamais envoyée à Gemini (seulement à Groq). Tu peux corriger ce fichier à la main.
+- texte: faire un potcast jusqu'à 5 min en semaine et jusqu'à 10 min le weekend
+  portee: podcast
+  date: '2026-10-11'
+  source: journal 2026-10-11
