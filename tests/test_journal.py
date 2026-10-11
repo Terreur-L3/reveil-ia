@@ -479,8 +479,11 @@ class TestInspi(WorldCase):
 
 # =========================================================================== le journal complet
 class JournalCase(WorldCase):
+    tts_kwargs: list = []
+
     def setUp(self):
         super().setUp()
+        JournalCase.tts_kwargs = []
         self.now = datetime(2026, 10, 4, 14, 0, tzinfo=PARIS)
         for target, attr, value in [
             (telegram, "API_ROOT", self.world.base + "/telegram"),
@@ -501,7 +504,8 @@ class JournalCase(WorldCase):
         self.ts = int(self.now.timestamp())
 
     @staticmethod
-    def fake_tts(text, cfg, out_path):
+    def fake_tts(text, cfg, out_path, **kw):
+        JournalCase.tts_kwargs.append(dict(kw))                 # la question « Inspi » doit demander private=True
         Path(out_path).write_bytes(b"ID3" + b"\0" * 6000)
         return "fr-FR-TestNeural"
 

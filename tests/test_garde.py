@@ -242,8 +242,19 @@ class TestShippedWorkflows(unittest.TestCase):
         self.assertIn("inputs.origine", env["JOURNAL_ORIGINE"])
         self.assertNotIn("GEMINI_API_KEY", env)                                         # le journal ne parle jamais à Gemini
 
+    def test_voice_workflow(self):
+        doc = self.load("voix.yml")
+        self.assertEqual(sorted(doc["triggers"]), ["workflow_dispatch"])               # jamais planifié : il ne consomme que sur demande
+        self.assertEqual(sorted(doc["triggers"]["workflow_dispatch"]["inputs"]), ["origine", "voix"])
+        self.assertEqual(doc["permissions"], {"contents": "read"})
+        step = self.steps(doc, "essai")["Envoyer les échantillons dans Telegram"]
+        for secret in ("GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+            self.assertEqual(step["env"][secret], "${{ secrets." + secret + " }}")
+        self.assertEqual(step["env"]["ESSAI_VOIX"], "${{ inputs.voix }}")
+        self.assertNotIn("${{", step["run"])                                              # l'entrée de l'utilisateur ne passe jamais dans le script shell
+
     def test_the_workflows_ask_for_nothing_beyond_what_they_use(self):
-        for name in ("podcast.yml", "journal.yml"):
+        for name in ("podcast.yml", "journal.yml", "voix.yml"):
             text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
             self.assertNotIn("secrets.GITHUB_TOKEN", text)
             self.assertNotIn("pull_request", text)                                      # le dépôt est privé, mais on ne s'ouvre à rien d'autre

@@ -22,13 +22,13 @@ TOI (Telegram) ─ vocal / texte / photo / « 💡 Inspi » / « mets mon révei
  flux RSS ─► Gemini note les actus ─► choix par le programme ─► Gemini écrit le texte (tes consignes de style en plus)
                        ▲ tes centres d'intérêt APPRIS dans memoire/        │
  infos perso + cours du jour : insérés par le programme, jamais envoyés à une IA
-                                                      ─► Edge TTS (voix) ─► latest.mp3 ─► + sonnerie = reveil.mp3
+                                                      ─► Gemini TTS (voix réaliste ; Edge en secours) ─► latest.mp3 ─► + sonnerie = reveil.mp3
                  ◄─ le mp3 arrive dans Telegram  +  branche « podcast » (latest.mp3, reveil.mp3, sonnerie.mp3, latest.txt…)
 
 SONNETTE  (Cloudflare Workers, une fois par minute)
    ├─ elle voit un message qui t'attend ───────────► lance le journal tout de suite
    ├─ 15 min avant l'heure de ton réveil ──────────► lance le podcast
-   └─ à l'heure exacte ────────────────────────────► MacroDroid (ton téléphone) joue reveil.mp3
+   └─ à l'heure exacte ────────────────────────────► Automate ou MacroDroid (ton téléphone) joue reveil.mp3
                                                      (plan B : un message Telegram avec notification)
 ```
 
@@ -47,21 +47,25 @@ Tu peux t'arrêter après la 7 : le podcast t'attend alors dans Telegram, et la 
 
 ### Étape 0 — Mettre le dépôt à jour (Termux)
 
+Le zip de mise à jour (`reveil-ia-v5-maj.zip`) ne contient **que ce qui change** : il ne touche ni à ta mémoire, ni à ton
+`moi.yaml`, ni à ton `config.yaml` (un petit outil en met à jour seulement la section voix), ni à `extras/sonnette/`
+(ton `worker.js`, ton `wrangler.toml` avec tes identifiants Cloudflare et ton déploiement automatique restent tels quels).
+
 ```
-cd ~/storage/downloads/reveil-ia && git pull --rebase origin main     # 1. récupère d'abord ce que le robot a pu écrire
-cd .. && unzip -o reveil-ia-v4b.zip -x 'reveil-ia/memoire/*' 'reveil-ia/moi.yaml'    # 2. dézippe par-dessus
-cd reveil-ia && git add -A && git commit -m "v4 : consignes, images, réveil par Telegram, sonnette" && git push --set-upstream origin main   # 3. envoie
+cd ~/storage/shared/Scripts/reveil-ia && git pull --rebase origin main        # 1. récupère d'abord ce que le robot a pu écrire
+cd .. && unzip -o reveil-ia-v5-maj.zip                                         # 2. dézippe par-dessus (le zip est dans « Scripts »)
+cd reveil-ia && python3 outils/maj_config_voix.py                              # 3. active la voix réaliste dans TON config.yaml
+git add -A && git commit -m "v5 : voix réaliste (Gemini)" && git push          # 4. envoie
 ```
 
-Le zip doit se trouver dans le dossier **Téléchargements** du téléphone (à côté du dossier `reveil-ia`).
 Fais toujours le `git pull --rebase` **avant** de dézipper : le robot enregistre ta mémoire dans le dépôt, donc le
-dépôt change même quand tu n'y touches pas. Ton `.git` n'est pas touché, et le `-x …` protège tes anniversaires, tes
-rappels et tes préférences (`memoire/`, `moi.yaml`). (`unzip` introuvable ? `pkg install unzip`. Le `pull` se plaint de
-« unstaged changes » ? Fais d'abord `git add -A && git commit -m "avant v4"`, puis recommence.)
+dépôt change même quand tu n'y touches pas. (`unzip` introuvable ? `pkg install unzip`. `python3` introuvable ?
+`pkg install python`. Le `pull` se plaint de « unstaged changes » ? Fais d'abord `git add -A && git commit -m "avant v5"`,
+puis recommence. Le `push` répond « without `workflow` scope » ? Voir « Si ça coince » : cette mise à jour ajoute un
+fichier dans `.github/workflows/`.)
 
-Cette mise à jour remplace `config.yaml` : si tu y avais mis ton prénom ou changé des flux, remets-les ensuite.
-Elle met aussi à jour les deux fichiers de `.github/workflows/` : si le `git push` répond « without `workflow` scope »,
-voir « Si ça coince ».
+L'étape 3 sauvegarde ton ancien fichier dans `config.yaml.avant-voix`, garde ta voix Edge et ta vitesse actuelles
+(elles servent de voix de secours) et ne change rien d'autre. Elle est sans danger si tu la relances.
 
 ### Étape 1 — Clé Groq (gratuite)
 
@@ -135,7 +139,7 @@ Sans cette étape, tout marche, mais le podcast attend dans Telegram que tu l'ou
 sonnerie puis le podcast à l'heure choisie, et le bot te répond en une minute au lieu d'une demi-heure.
 
 Elle a trois morceaux, tous gratuits : un **jeton GitHub** (8.1), un petit programme **Cloudflare** (8.2 à 8.7) et une
-macro **MacroDroid** sur le téléphone (8.8). Prévois ~30 minutes, avec le PC pour Cloudflare et le téléphone pour la fin.
+macro **MacroDroid** ou un flux **Automate** sur le téléphone (8.8). Prévois ~30 minutes, avec le PC pour Cloudflare et le téléphone pour la fin.
 
 **8.1 — Un jeton GitHub réservé à la sonnette.** GitHub → ta photo → **Settings → Developer settings → Personal access
 tokens → Fine-grained tokens → Generate new token**.
@@ -210,6 +214,19 @@ une capture d'écran et on ajuste ensemble.
 4. Essai : ouvre `…/test/<SECRET>/ring`. Le téléphone doit sonner puis lire le podcast en quelques secondes.
    Rien ne se passe ? Regarde le journal de la macro (MacroDroid → *Journal système*) et envoie-moi une capture.
 
+**8.8 bis — Automate (LlamaLab) à la place de MacroDroid.** La sonnette sait réveiller le téléphone par un « message
+cloud » d'Automate (gratuit). Dans Cloudflare, ajoute le secret **`AUTOMATE_SECRET`** (la clé « secret » générée sur
+llamalab.com/automate/cloud) et **`AUTOMATE_TO`** (l'e-mail du compte Google d'Automate) : si les deux sont là, Automate
+est utilisé à la place de `RING_URL`. Le flux sur le téléphone : **Cloud message receive** → **HTTP request** (GET vers
+`…/p/<SECRET>/reveil.mp3`, réponse enregistrée dans un fichier) → **Sound play** (ce fichier, flux alarme). `/status`
+indique `automate: true`, et `…/test/<SECRET>/ring` fait sonner le téléphone pour l'essai.
+⚠️ Automate enregistre **ce qu'il reçoit** comme s'il s'agissait du son : si la sonnette n'a rien à lui donner, il garde un
+petit fichier de texte (« aucun fichier audio disponible ») que « Sound play » ne peut pas lire. Depuis la v4.1 de
+`worker.js`, tu reçois alors tout de suite un message Telegram avec notification, et `…/status/<SECRET>` teste en direct
+GitHub et Telegram et dit en français ce qui ne va pas (jeton expiré, mauvais droits, branche `podcast` vide…).
+Pour aller plus loin, ajoute au flux, sur le chemin « échec » du bloc « Sound play », une requête HTTP GET vers
+`…/p/<SECRET>/echec` : la sonnette prévient alors aussitôt dans Telegram.
+
 **8.9 — Le plan B et la ceinture.** Si le téléphone n'a pas été chercher le fichier 2 minutes après l'heure, la sonnette
 t'écrit dans Telegram (avec notification) : `⏰ 6 h 30 — bonjour ! Ton podcast du matin est dans la conversation…`.
 Garde malgré tout, **pendant les premières semaines**, une alarme normale de l'appli Horloge ~15 minutes après ton heure
@@ -232,7 +249,8 @@ de la veille. Ça ne se reproduit plus ensuite.
 | **⏰ Réveil** (ou `/reveil`) | Ton horaire et le prochain réveil. `/reveil 6h30 semaine` pour le changer |
 | **📅 Cours** (ou `/cours`) | Ton emploi du temps de la semaine. `/cours lundi 9h-12h étalonnage salle 204` pour l'écrire à la main ; `/cours effacer` |
 | `/podcast` | Prépare le podcast tout de suite (une fois toutes les 10 minutes au plus) |
-| `/duree 3` · `/voix femme` · `/vitesse lent` | Longueur du podcast (1 à 8 min), voix (homme, femme, remy, vivienne), vitesse (lent, normal, rapide ou `-15%`) |
+| `/duree 3` · `/voix sulafat` · `/vitesse lent` | Longueur du podcast (1 à 8 min), voix (voir « Une voix réaliste » ci-dessous), vitesse (lent, normal, rapide ou `-15%`) |
+| `/voix essai` | Je t'envoie quelques échantillons de voix réalistes à écouter (`/voix essai puck zephyr` pour choisir lesquelles) |
 | `/consigne phrases courtes` · `/consignes` · `/oublier 2` | Ajouter, lister, retirer une consigne de comportement |
 | `/reglages` | Tous tes réglages d'un coup (réveil, podcast, consignes, emploi du temps) |
 | `/aide` | Rappel des fonctions |
@@ -241,6 +259,37 @@ de la veille. Ça ne se reproduit plus ensuite.
 
 Pour répondre à une question précise, utilise « Répondre » sur le message-question : sinon la réponse est rattachée
 à la dernière question restée sans réponse (moins de 36 h).
+
+## Une voix réaliste (Gemini)
+
+Le podcast est dit par **Gemini TTS** (Google) : des voix beaucoup plus naturelles que les voix « lues » d'avant (elles
+respirent, mettent le ton, sourient). C'est gratuit avec la clé `GEMINI_API_KEY` que tu as déjà (aucun secret à ajouter).
+
+**Essayer et choisir.**
+1. Dans Telegram : `/voix essai`. Une à trois minutes plus tard arrivent 6 échantillons (la même phrase, voix différentes)
+   et, pour comparer, une voix Edge classique. (Ou : GitHub → Actions → **Essai de voix** → Run workflow.)
+2. Choisis à l'oreille : `/voix sulafat` (chaleureuse), `/voix achird` (amicale), `/voix kore`, `/voix charon`, `/voix orus`,
+   `/voix algieba`… Il y en a **30** (`/voix essai puck zephyr leda` pour écouter d'autres). C'est pris en compte au
+   prochain podcast ; `/podcast` en fait un tout de suite.
+3. Le ton se règle dans `config.yaml` → `voix` → `gemini` → `style` (c'est une phrase, en anglais de préférence : « warm,
+   natural and relaxed, like a friendly morning radio host… »). Essaie par exemple « energetic and upbeat » pour les
+   lundis difficiles. La vitesse (`/vitesse lent`) marche aussi.
+
+**Filet de sécurité.** Si Gemini ne répond pas (quota du jour atteint, panne, clé refusée), le podcast sort quand même, avec
+la voix Edge, et la raison est écrite dans `meta.json` (« voix_note ») et sous le message Telegram (« voix Gemini indisponible
+(…) : voix Edge à la place »). Un réveil ne finit jamais en silence. Les questions du soir (Inspi) restent toujours sur Edge.
+
+**Ce que je n'ai pas pu vérifier moi-même.** Je n'ai pas accès à Gemini depuis mon environnement : tout est testé hors ligne
+contre un faux serveur qui suit la documentation Google d'octobre 2026. Les noms de modèles (`gemini-3.8-flash-tts`,
+`…flash-lite-tts`) et les limites du palier gratuit (non publiées) peuvent changer : si `/voix essai` répond par des ❌, le
+message te donne la raison exacte (écris-la-moi, sans aucune clé) et je corrige. Un podcast par jour ne demande qu'un appel.
+
+**Pourquoi pas ta propre voix ?** Le clonage de voix de Gemini n'est pas proposé en Europe (EEE) via AI Studio. Les
+voix « sur mesure » (Voice design, nom du type `voice_…`) existent : si tu en crées une, écris `/voix voice_…` ou mets-la
+dans `config.yaml`. Les autres pistes gratuites (ElevenLabs, modèles locaux comme XTTS ou Chatterbox) sont soit trop limitées,
+soit trop lentes sur les machines gratuites de GitHub.
+
+**Marquage.** L'audio de Gemini contient un filigrane inaudible (SynthID) qui indique qu'il est généré par IA.
 
 ## Ton réveil par Telegram
 
@@ -324,7 +373,8 @@ la retirer avec `/consignes` puis `/oublier N`). Chaque consigne concerne **le p
 |---|---|---|
 | **Groq** | Tes vocaux (le temps de la transcription), le texte de ton journal, **tes images** (le temps de la lecture), tes consignes | Seul fournisseur IA qui voit ta vie privée. Contrat : pas d'entraînement sur tes données, pas de conservation par défaut ; option « Zero Data Retention » |
 | **Gemini** (Google, offre gratuite) | Des titres d'actus **publics**, les libellés de tes centres d'intérêt **non sensibles** (ex. « Houdini ») et tes consignes de **style** non sensibles | L'offre gratuite peut servir à améliorer les modèles de Google : jamais ton journal, jamais une image, jamais un nom, une date perso, un cours ou un sujet sensible |
-| **Microsoft Edge TTS** (la voix) | Le texte lu : le podcast, **y compris tes lignes perso et tes cours du jour** (« demain, Karim fête ses 21 ans »), et les questions Inspi | Service non officiel et gratuit de Microsoft. Si ça te gêne : `question_vocale: false` (section `journal`), `max_lignes: 0` et `cours: false` (section `perso`) dans `config.yaml` |
+| **Gemini TTS** (la voix du podcast) | Le texte du podcast à lire, **y compris tes lignes perso et tes cours du jour** (« demain, Karim fête ses 21 ans »). Jamais ton journal, ni tes images, ni les questions Inspi | En Europe, Google applique à l'API les conditions des services payants : tes textes ne servent pas à entraîner ses modèles. Si ça te gêne : `max_lignes: 0` et `cours: false` (section `perso`) dans `config.yaml`, ou `/voix homme` (voix Edge) |
+| **Microsoft Edge TTS** (voix de secours) | Les questions Inspi (toujours) et, si Gemini est indisponible ou choisi par toi, le texte du podcast | Service non officiel et gratuit de Microsoft. Si ça te gêne : `question_vocale: false` (section `journal`) dans `config.yaml` |
 | **Telegram** | Tes messages, tes vocaux, tes photos, le podcast | Les conversations avec un bot ne sont pas chiffrées de bout en bout |
 | **GitHub** (dépôt **privé**) | `memoire/` contient le **texte complet** de ce que tu dis, ton emploi du temps et tes réglages ; la branche `podcast` contient le podcast du jour | **Ne passe jamais le dépôt en public.** L'audio et les images ne sont jamais conservés, seulement le texte |
 | **Cloudflare** (la sonnette) | Les deux jetons (GitHub, bot Telegram) que tu lui confies, ton horaire de réveil, le podcast du jour (il passe par elle jusqu'au téléphone) ; elle voit *passer* tes messages en attente dans Telegram | Elle n'en **garde rien** (ni message, ni podcast), n'écrit jamais dans ton dépôt, n'efface jamais un message. Jeton GitHub limité à ce seul dépôt. Les adresses sont secrètes (`SECRET`) |
@@ -361,6 +411,8 @@ Le jeton Telegram et les clés n'apparaissent jamais dans les logs. Le contenu d
 | Rien ne se lance tout seul | GitHub n'exécute les tâches planifiées que sur la branche principale ; en attendant, utilise *Run workflow* ou `/podcast` |
 | « Impossible d'enregistrer la mémoire (conflit ?) » | Tu as modifié sur GitHub un fichier de `memoire/` au même instant. Rien n'est perdu : tes messages Telegram sont relus au passage suivant |
 | Le podcast est très court, avec « je n'ai pas pu préparer les actus » | C'est le **podcast de secours** (bonjour + anniversaires/rappels/cours). Lis `choix.txt` sur la branche `podcast` : la raison y est écrite (flux en panne, IA indisponible) |
+| Le podcast est dit avec la voix de secours (Edge) | Regarde « voix_note » dans `meta.json` (branche `podcast`) ou sous le message Telegram : quota Gemini atteint (réessaie plus tard), clé refusée (secret `GEMINI_API_KEY`), panne. `/voix essai` te dit lesquelles marchent |
+| Le téléphone joue un son bizarre ou rien, et le fichier téléchargé ne fait que ~76 octets | C'est un message d'erreur de la sonnette, pas un son : ouvre `…/status/<SECRET>`, il dit ce qui ne va pas (le plus souvent le jeton `GITHUB_TOKEN` de Cloudflare : expiré, ou sans « Actions : Read and write » + « Contents : Read-only » sur le dépôt) |
 | Un flux d'actus est « EN ÉCHEC » dans `choix.txt` | Supprime sa ligne dans `config.yaml` (section `actu`) s'il l'est depuis plusieurs jours |
 | Le vocal est « abandonné » | Format ou fichier illisible : renvoie-le. Après 4 essais, le bot te le dit |
 | « Je n'arrive pas à lire cette image » / emploi du temps illisible | Renvoie-le **« en tant que fichier »**, plus net, ou recadre quelques jours. Sinon écris-le : `/cours lundi 9h-12h étalonnage salle 204` |
@@ -382,8 +434,8 @@ pip install -r requirements.txt
 cp .env.example .env                      # puis colle tes clés dedans
 python -m src.main --no-audio             # texte du podcast + choix des actus, sans audio ni envoi
 python -m src.journal --no-send           # une passe du journal, sans rien écrire dans Telegram
-python -m unittest discover -s tests -t . # ~385 tests hors ligne (faux Telegram / Groq / Gemini / GitHub / flux RSS)
-cd extras/sonnette && node --test         # 143 tests de la sonnette (Node 20 ou plus)
+python -m unittest discover -s tests -t . # ~440 tests hors ligne (faux Telegram / Groq / Gemini / GitHub / flux RSS)
+cd extras/sonnette && node --test         # 166 tests de la sonnette (Node 20 ou plus)
 ```
 
 Pour les longs vocaux, la conversion des images et la sonnerie, `ffmpeg` est nécessaire : GitHub l'installe tout seul quand il en
@@ -402,15 +454,17 @@ memoire/                       anniversaires.yaml, rappels.yaml (à la main) + t
   reglages.json                ton réveil, la durée/voix/vitesse du podcast (lu aussi par la sonnette)
 src/main.py                    podcast : actus → tri → texte → voix → sonnerie → Telegram (+ podcast de secours)
 src/news.py, triage.py         récupère les actus, les note, puis le programme choisit (seuils, plafonds, ton)
-src/script_writer.py, tts.py   écrit le texte parlé (avec tes consignes de style), le transforme en mp3
+src/script_writer.py, tts.py   écrit le texte parlé (avec tes consignes de style) ; tts.py : Gemini TTS + secours Edge → mp3 ; `python -m src.tts --essai`
 src/jingle.py, garde.py        sonnerie (reveil.mp3, sonnerie.mp3) ; garde-fou des lancements planifiés
 src/perso.py, edt.py           anniversaires, rappels et cours du jour, dits par le programme (jamais par une IA)
 src/journal.py                 une passe du journal : Telegram → transcription/vision → mémoire → ordres → questions
 src/reglages.py, vision.py     comprendre « mets mon réveil à… » (règles fixes) ; lire les images (Groq)
 src/telegram.py, github.py, audio.py, stt.py, extract.py, inspi.py, memoire.py, pacer.py   les briques du journal
 src/llm.py                     Gemini / Groq avec repli d'un modèle à l'autre
-extras/sonnette/               la sonnette Cloudflare (worker.js, 143 tests)
+extras/sonnette/               la sonnette Cloudflare (worker.js, 166 tests ; Automate ou MacroDroid)
+outils/maj_config_voix.py      met à jour la section voix de ton config.yaml (étape 0)
 .github/workflows/podcast.yml  podcast quotidien       .github/workflows/journal.yml  journal toutes les 30 min
+.github/workflows/voix.yml     essai des voix (sur demande : /voix essai)
 tests/                         tests hors ligne
 ```
 
@@ -418,7 +472,7 @@ tests/                         tests hors ligne
 
 1. **Fait** : actus → tri selon toi → texte → voix → Telegram ; journal vocal ; mémoire ; Inspi ; intérêts appris ;
    podcast de secours ; consignes de comportement ; lecture d'images (emploi du temps) ; réveil réglable par Telegram ;
-   sonnette Cloudflare + sonnerie + lecture automatique à l'heure exacte (étape 8, côté téléphone à valider ensemble).
+   sonnette Cloudflare + sonnerie + lecture automatique à l'heure exacte (Automate ou MacroDroid) ; voix réaliste Gemini avec secours Edge.
 2. **Idées** (à ta demande) : « il y a un an, tu me disais… » dans le podcast ; perturbations de transports en Île-de-France
    le matin ; bilan de la semaine le dimanche ; emploi du temps en PDF ; agenda et mails importants (toujours via Groq seul).
-3. **Ta voix** : voix clonée (XTTS-v2) quand une solution locale gratuite tiendra dans les limites de GitHub.
+3. **Ta propre voix** : le clonage n'est pas proposé en Europe par Gemini ; une voix « Voice design » sur mesure est possible (voir « Une voix réaliste »).

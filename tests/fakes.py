@@ -216,6 +216,7 @@ class World:
         self.groq_fn = self.smart_groq
         self.extract_fn = default_extract
         self.question_n = 0
+        self.tts_fn = self.smart_tts                   # Gemini TTS : (requête, « interactions » | « legacy », corps) → (statut, réponse)
         # Groq transcription
         self.transcripts: list[str] = []               # textes à renvoyer, dans l'ordre des appels
         self.stt_fn = self.smart_stt
@@ -240,6 +241,35 @@ class World:
         self._tg_update_id = 500
         self.server: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
+
+    # ----- Gemini TTS : une seconde de « voix » (un la) par appel, dans la forme de réponse de l'API
+    @staticmethod
+    def wav_bytes(seconds: float = 1.0, raw: bool = False) -> bytes:
+        import io, math, struct, wave
+
+        rate = 24000
+        frames = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(int(rate * seconds)))
+        if raw:
+            return frames
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(frames)
+        return buf.getvalue()
+
+    def smart_tts(self, req, kind, body):
+        import base64
+
+        if kind == "interactions":
+            data = base64.b64encode(self.wav_bytes()).decode()
+            return 200, {"steps": [
+                {"type": "user_input", "content": [{"type": "text", "text": "…"}]},
+                {"type": "model_output", "content": [{"type": "audio", "mime_type": "audio/wav", "data": data}]},
+            ]}
+        data = base64.b64encode(self.wav_bytes(raw=True)).decode()
+        return 200, {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "audio/L16;codec=pcm;rate=24000", "data": data}}]}}]}
 
     # ----- cycle de vie
     def start(self) -> "World":
@@ -341,6 +371,10 @@ class World:
             model = path[len("/gemini/"):].split(":")[0]
             status, payload = self.gemini_fn(req, model, req.json or {})
             return self._json(status, payload, gemini_reply)
+        if path == "/gemini-tts/interactions" or path.startswith("/gemini-tts/legacy/"):
+            kind = "interactions" if path.endswith("/interactions") else "legacy"
+            status, payload = self.tts_fn(req, kind, req.json or {})
+            return self._json(status, payload, lambda t: {"error": {"message": t}})
         if path == "/groq/chat/completions":
             status, payload = self.groq_fn(req, (req.json or {}).get("model", ""), req.json or {})
             return self._json(status, payload, groq_reply)

@@ -524,6 +524,37 @@ class TestPodcastSettings(unittest.TestCase):
         self.assertIsNone(R.parse_voix("robot"))
         self.assertIsNone(R.parse_voix(""))
 
+    def test_gemini_voices(self):
+        self.assertEqual(R.parse_voix("sulafat"), "gemini:Sulafat")
+        self.assertEqual(R.parse_voix("Mets la voix Achird"), "gemini:Achird")
+        self.assertEqual(R.parse_voix("gemini"), "gemini")
+        self.assertEqual(R.parse_voix("voice_ab12-xy"), "gemini:voice_ab12-xy")
+        self.assertEqual(R.parse_voix("homme"), "fr-FR-HenriNeural")             # les voix classiques ne changent pas
+        self.assertIsNone(R.parse_voix("voice_"))
+        self.assertEqual(R.validate_setting("voix", "kore"), ("voix", "gemini:Kore"))
+
+    def test_gemini_choice_is_validated_when_the_file_is_read(self):
+        for good in ("gemini", "gemini:Kore", "gemini:voice_ab12-xy"):
+            self.assertEqual(R.normalize({"podcast": {"voix": good}})["podcast"]["voix"], good)
+        for bad in ("gemini:", "gemini:Inconnue", "gemini:voice_", "gemini:Kore; rm -rf", "Kore", "gemini:../x"):
+            self.assertIsNone(R.normalize({"podcast": {"voix": bad}})["podcast"]["voix"], bad)
+
+    def test_gemini_labels_and_config(self):
+        s = R.normalize(None)
+        self.assertEqual(R.set_podcast(s, "voix", "gemini:Sulafat"), "voix : Sulafat (Gemini)")
+        self.assertEqual(R.set_podcast(s, "voix", "gemini"), "voix : Gemini (voix par défaut)")
+        R.set_podcast(s, "voix", "gemini:Kore")
+        self.assertIn("voix Kore (Gemini)", R.podcast_summary(s))
+        cfg = {"voix": {"moteur": "edge", "edge_voix": "fr-FR-HenriNeural", "gemini": {"voix": "Sulafat", "style": "x"}}}
+        out = R.apply_to_cfg(cfg, s)["voix"]
+        self.assertEqual((out["moteur"], out["gemini"]), ("gemini", {"voix": "Kore", "style": "x"}))
+        self.assertEqual(cfg["voix"]["gemini"]["voix"], "Sulafat")               # l'original reste intact
+        R.set_podcast(s, "voix", "gemini")
+        self.assertEqual(R.apply_to_cfg(cfg, s)["voix"]["gemini"]["voix"], "Sulafat")   # « gemini » seul : la voix de config.yaml
+        R.set_podcast(s, "voix", "fr-FR-DeniseNeural")
+        out = R.apply_to_cfg({"voix": {"moteur": "gemini"}}, s)["voix"]
+        self.assertEqual((out["moteur"], out["edge_voix"]), ("edge", "fr-FR-DeniseNeural"))
+
     def test_speed(self):
         cases = {"lent": "-10%", "très lent": "-20%", "tres lent": "-20%", "rapide": "+10%", "plus rapide": "+10%",
                  "très rapide": "+20%", "normal": "+0%", "+15%": "+15%", "15 %": "+15%", "0%": "+0%"}

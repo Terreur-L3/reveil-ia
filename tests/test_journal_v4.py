@@ -716,6 +716,73 @@ class TestPodcastCommand(V4Case):
 
 
 # =========================================================================== aide et menu
+class TestVoiceCommand(V4Case):
+    """Les voix réalistes (Gemini) : choisir, écouter des échantillons."""
+
+    def setUp(self):
+        super().setUp()
+        for patcher in (
+            mock.patch.object(github, "API_ROOT", self.world.base + "/github"),
+            mock.patch.dict("os.environ", {"GITHUB_TOKEN": "ghs_TESTSECRET", "GITHUB_REPOSITORY": "Terreur-L3/reveil-ia",
+                                            "GITHUB_REF_NAME": "main"}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_choosing_a_gemini_voice(self):
+        (reply,) = self.say("/voix sulafat")
+        self.assertIn("🔧 Réglé : voix : Sulafat (Gemini).", reply)
+        self.assertIn("voix Sulafat (Gemini)", reply)
+        self.assertEqual(self.settings()["podcast"]["voix"], "gemini:Sulafat")
+        cfg = reglages.apply_to_cfg(self.cfg, self.mem.load_reglages())["voix"]
+        self.assertEqual((cfg["moteur"], cfg["gemini"]["voix"]), ("gemini", "Sulafat"))
+        self.assertEqual(self.cfg["voix"]["gemini"]["voix"], "Sulafat")                   # la config d'origine n'est pas modifiée
+
+    def test_choosing_a_classic_voice_switches_back_to_edge(self):
+        self.say("/voix kore")
+        self.say("/voix femme")
+        cfg = reglages.apply_to_cfg(self.cfg, self.mem.load_reglages())["voix"]
+        self.assertEqual((cfg["moteur"], cfg["edge_voix"]), ("edge", "fr-FR-DeniseNeural"))
+
+    def test_a_custom_voice_id_is_accepted(self):
+        self.say("/voix voice_ab12-xy")
+        self.assertEqual(self.settings()["podcast"]["voix"], "gemini:voice_ab12-xy")
+
+    def test_help_lists_both_families_and_the_sample_command(self):
+        reply = self.say("/voix")[0]
+        for expected in ("Voix réalistes (Gemini)", "/voix sulafat", "/voix essai", "/voix homme"):
+            self.assertIn(expected, reply)
+
+    def test_samples_start_the_voice_workflow(self):
+        (reply,) = self.say("/voix essai")
+        self.assertIn("🎙️ C'est lancé", reply)
+        self.assertEqual(self.world.gh_dispatches, [{
+            "repo": "Terreur-L3/reveil-ia", "workflow": "voix.yml", "ref": "main",
+            "inputs": {"voix": "", "origine": "telegram"}, "auth": "Bearer ghs_TESTSECRET"}])
+        self.assertEqual(self.settings()["podcast"]["voix"], None)                        # écouter ne change aucun réglage
+
+    def test_samples_of_chosen_voices_and_unknown_names_are_dropped(self):
+        self.say("/voix essai Puck, zephyr robot Puck")
+        self.assertEqual(self.world.gh_dispatches[0]["inputs"]["voix"], "Puck Zephyr")
+
+    def test_samples_twice_in_ten_minutes_start_only_once(self):
+        self.say("/voix essai")
+        self.assertIn("viennent d'être demandés", self.say("/voix essai")[0])
+        self.assertEqual(len(self.world.gh_dispatches), 1)
+
+    def test_samples_without_token_say_what_to_do(self):
+        with mock.patch.dict("os.environ", {"GITHUB_TOKEN": ""}):
+            (reply,) = self.say("/voix essai")
+        self.assertIn("Essai de voix", reply)
+        self.assertEqual(self.world.gh_dispatches, [])
+        self.assertFalse(self.mem.load_state().get("dernier_essai_voix"))
+
+    def test_the_inspi_question_is_spoken_with_private_text_protection(self):
+        self.say("/inspi")
+        self.assertTrue(JournalCase.tts_kwargs)
+        self.assertTrue(all(kw.get("private") is True for kw in JournalCase.tts_kwargs))
+
+
 class TestHelp(V4Case):
     def test_the_welcome_message_mentions_every_new_thing(self):
         (welcome,) = self.say("/start")

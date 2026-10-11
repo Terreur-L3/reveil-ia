@@ -65,7 +65,7 @@ def fallback_script(prenom: str, perso_text: str, now: datetime) -> str:
 
 
 def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None, secours: bool = False,
-                      silent: bool = False) -> bool | None:
+                      silent: bool = False, voix_note: str = "") -> bool | None:
     """Dépose le podcast dans la conversation Telegram. None = pas configuré, False = échec."""
     if not (cfg.get("telegram") or {}).get("envoyer_podcast", True):
         return None
@@ -78,7 +78,9 @@ def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None,
         caption = f"Podcast du {date_fr(now)}"
         if secours:
             caption = f"Podcast de secours du {date_fr(now)} (les actus n'ont pas pu être préparées)"
-        bot.send_voice(mp3, caption=caption, duration=duration, silent=silent)
+        if voix_note:
+            caption += f"\n(🎙️ {voix_note})"
+        bot.send_voice(mp3, caption=caption[:1000], duration=duration, silent=silent)
         return True
     except Exception as exc:  # le podcast est déjà publié : l'envoi n'est qu'un confort
         log.warning("Envoi Telegram impossible : %s", exc)
@@ -183,6 +185,10 @@ def generate(
         try:
             voice = tts.synthesize(script, cfg.get("voix", {}), mp3)
             meta.update(audio=True, voix=voice, duree_s=audio_duration(mp3))
+            note = getattr(tts, "last_note", lambda: "")()
+            if note:                      # Gemini n'a pas pu servir : on le voit dans meta.json et dans Telegram
+                meta["voix_note"] = note
+                log.warning("Voix : %s", note)
             if (cfg.get("reveil") or {}).get("sonnerie", True):  # sonnerie + podcast, pour le téléphone
                 try:
                     jingle.build(mp3, out / "reveil.mp3", seconds=float((cfg.get("reveil") or {}).get("sonnerie_s", 10)))
@@ -196,7 +202,8 @@ def generate(
             code = EXIT_NO_AUDIO
         else:
             if send_telegram:
-                sent = _send_to_telegram(mp3, cfg, now, meta.get("duree_s"), secours=bool(raison), silent=silent)
+                sent = _send_to_telegram(mp3, cfg, now, meta.get("duree_s"), secours=bool(raison), silent=silent,
+                                         voix_note=meta.get("voix_note", ""))
                 if sent is not None:
                     meta["telegram"] = sent
 

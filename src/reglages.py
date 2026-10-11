@@ -46,8 +46,33 @@ VOICES = {
     "remy": "fr-FR-RemyMultilingualNeural", "vivienne": "fr-FR-VivienneMultilingualNeural",
     "eloise": "fr-FR-EloiseNeural",
 }
+# Les 30 voix de Gemini TTS : nom → (impression générale, genre). Elles parlent toutes français.
+GEMINI_VOICES = {
+    "Zephyr": ("lumineuse", "f"), "Puck": ("enjouée", "h"), "Charon": ("posée, informative", "h"),
+    "Kore": ("ferme, assurée", "f"), "Fenrir": ("excitée, dynamique", "h"), "Leda": ("jeune", "f"),
+    "Orus": ("ferme, grave", "h"), "Aoede": ("légère, aérienne", "f"), "Callirrhoe": ("détendue", "f"),
+    "Autonoe": ("lumineuse", "f"), "Enceladus": ("soufflée, douce", "h"), "Iapetus": ("claire", "h"),
+    "Umbriel": ("décontractée", "h"), "Algieba": ("lisse, rassurante", "h"), "Despina": ("lisse", "f"),
+    "Erinome": ("claire", "f"), "Algenib": ("rauque", "h"), "Rasalgethi": ("informative", "h"),
+    "Laomedeia": ("enjouée", "f"), "Achernar": ("douce", "f"), "Alnilam": ("ferme", "h"),
+    "Schedar": ("régulière, neutre", "h"), "Gacrux": ("mûre", "f"), "Pulcherrima": ("directe", "f"),
+    "Achird": ("amicale", "h"), "Zubenelgenubi": ("décontractée", "h"), "Vindemiatrix": ("douce", "f"),
+    "Sadachbia": ("vive", "h"), "Sadaltager": ("savante", "h"), "Sulafat": ("chaleureuse", "f"),
+}
+GEMINI_BY_LOWER = {name.lower(): name for name in GEMINI_VOICES}
+_CUSTOM_VOICE_RE = re.compile(r"voice_[A-Za-z0-9_-]{3,80}")
 SPEEDS = {"tres lent": "-20%", "lent": "-10%", "normal": "+0%", "rapide": "+10%", "tres rapide": "+20%"}
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _valid_gemini_choice(value: str) -> bool:
+    """« gemini » (la voix de config.yaml), « gemini:Sulafat » ou « gemini:voice_… » (voix créée sur mesure)."""
+    if value == "gemini":
+        return True
+    if not value.startswith("gemini:"):
+        return False
+    name = value[len("gemini:"):]
+    return name in GEMINI_VOICES or bool(_CUSTOM_VOICE_RE.fullmatch(name))
 
 
 # --------------------------------------------------------------------------- lecture / écriture
@@ -80,7 +105,7 @@ def normalize(data) -> dict:
         if isinstance(minutes, (int, float)) and not isinstance(minutes, bool) and 1 <= minutes <= 8:
             out["podcast"]["minutes"] = minutes
         voix = pod.get("voix")
-        if isinstance(voix, str) and re.fullmatch(r"[a-z]{2}-[A-Z]{2}-\w+Neural", voix):
+        if isinstance(voix, str) and (re.fullmatch(r"[a-z]{2}-[A-Z]{2}-\w+Neural", voix) or _valid_gemini_choice(voix)):
             out["podcast"]["voix"] = voix
         vitesse = pod.get("vitesse")
         if isinstance(vitesse, str) and re.fullmatch(r"[+-]\d{1,2}%", vitesse):
@@ -658,9 +683,16 @@ def parse_duree(text: str) -> float | None:
 
 def parse_voix(text: str) -> str | None:
     folded = _fold(text)
+    custom = _CUSTOM_VOICE_RE.search(str(text))
+    if custom:
+        return f"gemini:{custom.group(0)}"
     for word in folded.split():
         if word in VOICES:
             return VOICES[word]
+        if word in GEMINI_BY_LOWER:
+            return f"gemini:{GEMINI_BY_LOWER[word]}"
+        if word == "gemini":
+            return "gemini"
     m = re.search(r"\b([a-z]{2}-[A-Z]{2}-\w+Neural)\b", str(text))
     return m.group(1) if m else None
 
@@ -692,21 +724,29 @@ def validate_setting(key: str, value) -> tuple[str, object] | None:
     return None
 
 
+def voice_label(value: str) -> str:
+    """Le nom que tu vois dans Telegram : « femme », « Sulafat (Gemini) », « fr-FR-RemyMultilingualNeural »…"""
+    if value == "gemini":
+        return "Gemini (voix par défaut)"
+    if value.startswith("gemini:"):
+        return f"{value[len('gemini:'):]} (Gemini)"
+    return next((k for k, v in VOICES.items() if v == value and k in ("homme", "femme")), value)
+
+
 def set_podcast(settings: dict, key: str, value) -> str:
     settings["podcast"][key] = value
     if key == "minutes":
         shown = f"{value:g}".replace(".", ",")
         return f"durée du podcast : environ {shown} minute{'s' if value > 1 else ''}"
     if key == "voix":
-        name = next((k for k, v in VOICES.items() if v == value and k in ("homme", "femme")), value)
-        return f"voix : {name}"
+        return f"voix : {voice_label(value)}"
     return f"vitesse de la voix : {value}"
 
 
 def podcast_summary(settings: dict, default_words: int = 300) -> str:
     p = settings["podcast"]
     minutes = p["minutes"] if p["minutes"] else default_words / 150
-    voice = next((k for k, v in VOICES.items() if v == p["voix"] and k in ("homme", "femme")), p["voix"] or "par défaut")
+    voice = voice_label(p["voix"]) if p["voix"] else "par défaut"
     return (f"🎙️ Podcast : environ {minutes:g} min · voix {voice} · vitesse {p['vitesse'] or 'normale'}"
             .replace(".", ","))
 
@@ -719,7 +759,15 @@ def apply_to_cfg(cfg: dict, settings: dict) -> dict:
         out["mots_cibles"] = int(p["minutes"] * 150)
     voix = out.setdefault("voix", {})
     if p["voix"]:
-        voix["edge_voix"] = p["voix"]
+        if p["voix"].startswith("gemini"):
+            voix["moteur"] = "gemini"
+            name = p["voix"].partition(":")[2]
+            if name:
+                voix["gemini"] = {**(voix.get("gemini") or {}), "voix": name}
+        else:
+            voix["edge_voix"] = p["voix"]
+            if voix.get("moteur") == "gemini":   # tu as choisi une voix Edge : on n'envoie rien à Gemini
+                voix["moteur"] = "edge"
     if p["vitesse"]:
         voix["vitesse"] = p["vitesse"]
     return out

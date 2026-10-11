@@ -1,0 +1,44 @@
+name: Essai de voix
+
+# Envoie dans Telegram quelques échantillons des voix réalistes (Gemini) pour que tu choisisses à l'oreille.
+# Lancement : dans Telegram, écris « /voix essai » (ou « /voix essai puck zephyr ») ; ou ici : Run workflow.
+# Le texte lu est une phrase d'exemple : rien de personnel n'est envoyé à Gemini.
+
+on:
+  workflow_dispatch:
+    inputs:
+      voix:
+        description: "Voix à essayer, séparées par des espaces (vide = la sélection de config.yaml)"
+        type: string
+        default: ""
+      origine:
+        description: "Qui demande (telegram ou manuel)"
+        type: string
+        default: "manuel"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voix
+  cancel-in-progress: false
+
+jobs:
+  essai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Installer les dépendances
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt
+
+      - name: Envoyer les échantillons dans Telegram
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ESSAI_VOIX: ${{ inputs.voix }}
+        run: .venv/bin/python -m src.tts --essai

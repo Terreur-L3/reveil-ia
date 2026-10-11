@@ -39,7 +39,7 @@ class PipelineCase(WorldCase):
         self.out = self.tmp / "out"
         self.voice_cfgs: list[dict] = []
 
-    def fake_tts(self, text, voice_cfg, out_path):
+    def fake_tts(self, text, voice_cfg, out_path, **kw):
         self.voice_cfgs.append(dict(voice_cfg))
         make_mp3(out_path, 3)
         return "fr-FR-TestNeural"
@@ -105,6 +105,32 @@ class TestSettingsReachThePodcast(PipelineCase):
         self.generate(audio=True)
         (voice_cfg,) = self.voice_cfgs
         self.assertEqual(voice_cfg, self.cfg["voix"])
+
+    @needs_ffmpeg
+    def test_a_gemini_choice_made_in_telegram_reaches_the_synthesis(self):
+        self.settings(voix="gemini:Kore")
+        self.generate(audio=True)
+        (voice_cfg,) = self.voice_cfgs
+        self.assertEqual((voice_cfg["moteur"], voice_cfg["gemini"]["voix"]), ("gemini", "Kore"))
+
+    @needs_ffmpeg
+    def test_a_voice_fallback_is_written_in_meta_and_sent_with_the_podcast(self):
+        note = "voix Gemini indisponible (quota) : voix Edge à la place"
+        with mock.patch.object(tts, "last_note", return_value=note):
+            self.generate(audio=True)
+        self.assertEqual(self.meta()["voix_note"], note)
+        bot = mock.Mock()
+        with mock.patch.object(telegram.Bot, "from_env", return_value=bot):
+            main._send_to_telegram(self.out / "latest.mp3", self.cfg, self.now, 3, voix_note=note)
+        self.assertIn(note, bot.send_voice.call_args.kwargs["caption"])
+        with mock.patch.object(telegram.Bot, "from_env", return_value=bot):
+            main._send_to_telegram(self.out / "latest.mp3", self.cfg, self.now, 3)
+        self.assertNotIn("voix", bot.send_voice.call_args.kwargs["caption"].lower())
+
+    @needs_ffmpeg
+    def test_no_note_when_everything_went_normally(self):
+        self.generate(audio=True)
+        self.assertNotIn("voix_note", self.meta())
 
     def test_a_broken_settings_file_changes_nothing(self):
         (self.racine / "memoire" / "reglages.json").write_text("{pas du json", encoding="utf-8")

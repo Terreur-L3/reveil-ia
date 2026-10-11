@@ -86,11 +86,20 @@ actu:
 
 # ----- Voix du podcast -----
 voix:
-  moteur: edge
-  # Autres voix à tester : fr-FR-DeniseNeural, fr-FR-RemyMultilingualNeural,
-  # fr-FR-VivienneMultilingualNeural
-  edge_voix: fr-FR-HenriNeural
-  vitesse: "+0%"         # ex. "+10%" pour parler plus vite, "-10%" plus lentement
+  moteur: gemini          # gemini = voix très naturelles (gratuit, clé GEMINI_API_KEY) ; edge = voix classiques
+                          # Si Gemini ne répond pas (quota, panne), le podcast sort quand même avec la voix Edge.
+  gemini:
+    voix: Sulafat         # Sulafat (chaleureuse), Achird (amicale), Kore, Charon, Orus, Algieba, Puck, Zephyr…
+                          # Pour écouter : Telegram → /voix essai ; pour choisir : /voix sulafat
+                          # Une voix créée sur mesure (« Voice design », nom en voice_…) se met ici aussi.
+    style: "warm, natural and relaxed, like a friendly morning radio host chatting with a close friend; calm smooth pace, a light smile in the voice"
+    modeles: [gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts]   # essayés dans l'ordre
+    delai_max_s: 90       # temps maximum passé à réessayer (quota, surcharge) avant la voix de secours
+  edge_voix: fr-FR-HenriNeural   # voix de secours (et voix des questions « Inspi », qui restent privées)
+                          # Autres voix Edge : fr-FR-DeniseNeural, fr-FR-RemyMultilingualNeural, fr-FR-VivienneMultilingualNeural
+  vitesse: "+0%"          # ex. "+10%" pour parler plus vite, "-10%" plus lentement (valable pour les deux moteurs)
+  essai: [Sulafat, Achird, Kore, Charon, Orus, Algieba]   # voix envoyées par « /voix essai »
+  essai_pause_s: 12       # pause entre deux échantillons (le quota gratuit limite les appels par minute)
 
 # ----- Telegram : ta conversation avec ton IA -----
 telegram:

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import worker, {
-  DEFAULTS, LIMITS, addDays, dayLabel, doorbellText, frTime, instantsBetween, isFreshToday, journalOffset, nextInstant,
+  DEFAULTS, LIMITS, addDays, dayLabel, diagnose, doorbellText, frTime, hasRing, instantsBetween, isFreshToday, journalOffset, nextInstant,
   nextWake, normalizeSettings, plan, podcastReady, readConfig, route, tick, wakeFor, weekday, zoned, zonedToEpoch,
 } from "./worker.js";
 
@@ -16,6 +16,9 @@ const TG_TOKEN = "123456:TOKEN-TELEGRAM-DE-TEST";
 const GH_TOKEN = "github_pat_JETON_DE_TEST";
 const RING_URL = "https://trigger.macrodroid.com/aaaa-bbbb-cccc-dddd-eeee/reveil-ia";
 const CHAT = "8923851509";
+const AUTOMATE_URL = "https://llamalab.com/automate/cloud/message";
+const AUTOMATE_SECRET = "cle-automate-secrete-de-test";
+const AUTOMATE_TO = "moi@example.org";
 const FIXTURES = JSON.parse(readFileSync(new URL("../../tests/data/wake_cases.json", import.meta.url), "utf8"));
 
 // ─────────────────────────────────────────────────────────────── outils
@@ -32,6 +35,9 @@ const WAKE = at(DAY, "06:30");       // 04:30 UTC (heure d'été)
 const baseEnv = (extra = {}) => ({
   GITHUB_TOKEN: GH_TOKEN, TELEGRAM_BOT_TOKEN: TG_TOKEN, TELEGRAM_CHAT_ID: CHAT, SECRET, RING_URL, ...extra,
 });
+
+/** Réglages avec Automate (LlamaLab) à la place de MacroDroid. */
+const automateEnv = (extra = {}) => baseEnv({ RING_URL: "", AUTOMATE_SECRET, AUTOMATE_TO, ...extra });
 
 /** Le « KV » de Cloudflare, avec en option un retard de visibilité des écritures (cohérence « à terme »). */
 class FakeKV {
@@ -64,6 +70,8 @@ class World {
     this.calls = [];                 // { url, method, headers, body }
     this.settings = reglages();      // contenu de memoire/reglages.json (null = fichier absent)
     this.settingsStatus = 200;       // forcer une erreur GitHub
+    this.githubDown = 0;             // si ≠ 0 : GitHub répond ce code à tout (hors dispatch)
+    this.actionsStatus = 200;
     this.meta = { date: "2026-10-07", genere_a: "2026-10-07T04:00:00Z", audio: true, mode: "normal", origine: "cron", reveil_mp3: true };
     this.files = { "reveil.mp3": "REVEIL=BIP+PODCAST", "sonnerie.mp3": "SONNERIE-SEULE", "latest.mp3": "PODCAST-SEUL" };
     this.dispatches = [];            // { file, inputs, at }
@@ -74,7 +82,9 @@ class World {
     this.sent = [];                  // messages envoyés par la sonnette dans Telegram
     this.telegramSendFails = false;
     this.webhookStatus = 200;
-    this.webhookCalls = [];          // instants des appels
+    this.automateStatus = 200;
+    this.automateCalls = [];         // messages « cloud » envoyés à Automate
+    this.webhookCalls = [];          // instants des appels (MacroDroid ou Automate)
     this.podcastDelayMin = 4;        // le workflow publie le podcast au bout de ce délai (null = il échoue)
     this.pending = [];
   }
@@ -94,6 +104,11 @@ class World {
     this.calls.push(call);
     const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
+    if (url === AUTOMATE_URL) {
+      this.webhookCalls.push(this.clock);
+      this.automateCalls.push({ ...JSON.parse(init.body || "{}"), method: call.method, at: this.clock, type: call.headers["content-type"] });
+      return new Response(this.automateStatus === 200 ? "OK" : "KO", { status: this.automateStatus });
+    }
     if (url.startsWith(RING_URL)) {
       this.webhookCalls.push(this.clock);
       return new Response(this.webhookStatus === 200 ? "OK" : "KO", { status: this.webhookStatus });
@@ -106,6 +121,7 @@ class World {
         if (this.getUpdatesError) return json({ ok: false, error_code: this.getUpdatesError.code, description: this.getUpdatesError.description }, this.getUpdatesError.code);
         return json({ ok: true, result: this.updates.slice(0, body.limit || 100) });
       }
+      if (method === "getMe") return json({ ok: true, result: { id: 1, is_bot: true } });
       if (method === "sendMessage") {
         if (this.telegramSendFails) return json({ ok: false, description: "Bad Request" }, 400);
         this.sent.push({ ...body, at: this.clock });
@@ -132,6 +148,10 @@ class World {
         }
         return json({ message: "nope" }, this.dispatchStatus);
       }
+      if (this.githubDown) return json({ message: "down" }, this.githubDown);
+      if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return json({ full_name: "x/y" });
+      if (/^\/repos\/[^/]+\/[^/]+\/actions\/workflows\/podcast\.yml$/.test(path)) return this.actionsStatus === 200 ? json({ id: 1 }) : json({ message: "no" }, this.actionsStatus);
+      if (/^\/repos\/[^/]+\/[^/]+\/contents\?ref=podcast$/.test(path)) return Object.keys(this.files).length ? json(Object.keys(this.files).map((name) => ({ name }))) : json({ message: "Not Found" }, 404);
       if ((m = path.match(/^\/repos\/[^/]+\/[^/]+\/actions\/workflows\/journal\.yml\/runs/))) {
         return json({ workflow_runs: this.runs.map((status) => ({ status })) });
       }
@@ -838,6 +858,199 @@ describe("journal : lancé dans la minute qui suit un message", () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════ Automate (LlamaLab) à la place de MacroDroid
+describe("Automate : le « message cloud » qui réveille le téléphone", () => {
+  test("configuration : les deux réglages sont nécessaires, et nettoyés", () => {
+    const cfg = readConfig({ AUTOMATE_SECRET: " cle ", AUTOMATE_TO: " moi@example.org " });
+    assert.equal(cfg.automateSecret, "cle");
+    assert.equal(cfg.automateTo, "moi@example.org");
+    assert.equal(hasRing(cfg), true);
+    assert.equal(hasRing(readConfig({ AUTOMATE_SECRET: "cle" })), false, "sans e-mail, pas d'Automate");
+    assert.equal(hasRing(readConfig({ AUTOMATE_TO: "moi@example.org" })), false, "sans clé, pas d'Automate");
+    assert.equal(hasRing(readConfig({ RING_URL: "https://ok.example/x" })), true, "MacroDroid seul : toujours possible");
+    assert.equal(hasRing(readConfig({})), false);
+  });
+
+  test("matinée normale : un message cloud à l'heure exacte, le téléphone vient chercher le fichier, aucun plan B", async () => {
+    const env = { ...automateEnv(), KV: world.kv() };
+    await simulate(env, at(DAY, "05:50"), at(DAY, "07:10"));
+    assert.equal(world.automateCalls.length, 1);
+    const [call] = world.automateCalls;
+    assert.equal(call.at, at(DAY, "06:30"));
+    assert.equal(call.method, "POST");
+    assert.match(call.type, /application\/json/);
+    assert.deepEqual({ secret: call.secret, to: call.to, priority: call.priority, payload: call.payload },
+      { secret: AUTOMATE_SECRET, to: AUTOMATE_TO, priority: "high", payload: "ring" });
+    assert.equal(world.calls.filter((c) => c.url.startsWith(RING_URL)).length, 0, "pas d'appel MacroDroid");
+    assert.equal(podcasts().length, 1);
+    assert.equal(notifying().length, 0, "pas de plan B quand le téléphone répond");
+    assert.equal(silent().length, 0);
+  });
+
+  test("Automate l'emporte quand les deux sont réglés", async () => {
+    const env = { ...baseEnv({ AUTOMATE_SECRET, AUTOMATE_TO }), KV: world.kv() };
+    await simulate(env, at(DAY, "06:20"), at(DAY, "06:40"));
+    assert.equal(world.automateCalls.length, 1);
+    assert.equal(world.calls.filter((c) => c.url.startsWith(RING_URL)).length, 0);
+  });
+
+  test("Automate refuse : le plan B (message Telegram avec notification) prend le relais", async () => {
+    world.automateStatus = 401;
+    const env = { ...automateEnv(), KV: world.kv() };
+    await simulate(env, at(DAY, "06:20"), at(DAY, "06:40"));
+    assert.equal(notifying().length, 1);
+    assert.match(notifying()[0].text, /6 h 30 — bonjour/);
+    assert.ok(world.automateCalls.length >= 1);
+  });
+
+  test("ni Automate ni MacroDroid : plan B direct, et alerte claire si même Telegram échoue", async () => {
+    const env = { ...baseEnv({ RING_URL: "" }), KV: world.kv() };
+    await simulate(env, at(DAY, "06:20"), at(DAY, "06:40"));
+    assert.equal(world.automateCalls.length, 0);
+    assert.equal(notifying().length, 1);
+  });
+
+  test("/test/ring : fonctionne avec Automate, et le dit", async () => {
+    const env = { ...automateEnv(), KV: world.kv() };
+    world.clock = WAKE;
+    const res = await route(new Request(`https://reveil.example/test/${SECRET}/ring`), env, WAKE);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.match(data.fait, /Automate/);
+    assert.equal(world.automateCalls.length, 1);
+  });
+
+  test("/test/ring : erreur d'Automate → 502 avec un conseil, sans la clé", async () => {
+    world.automateStatus = 500;
+    const env = { ...automateEnv(), KV: world.kv() };
+    world.clock = WAKE;
+    const res = await route(new Request(`https://reveil.example/test/${SECRET}/ring`), env, WAKE);
+    assert.equal(res.status, 502);
+    const text = await res.text();
+    assert.match(JSON.parse(text).conseil, /AUTOMATE_SECRET/);
+    assert.ok(!text.includes(AUTOMATE_SECRET) && !text.includes(AUTOMATE_TO));
+  });
+
+  test("/test/ring : rien de réglé → 400 qui nomme les deux possibilités", async () => {
+    const env = { ...baseEnv({ RING_URL: "" }), KV: world.kv() };
+    world.clock = WAKE;
+    const res = await route(new Request(`https://reveil.example/test/${SECRET}/ring`), env, WAKE);
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).erreur, /RING_URL.*AUTOMATE_SECRET/);
+  });
+
+  test("état : indique Automate, sans révéler la clé ni l'e-mail", async () => {
+    const env = { ...automateEnv(), KV: world.kv() };
+    world.clock = at(DAY, "05:00");
+    const text = await (await route(new Request(`https://reveil.example/status/${SECRET}`), env, world.clock)).text();
+    const data = JSON.parse(text);
+    assert.equal(data.configuration.automate, true);
+    assert.equal(data.configuration.adresse_macrodroid, false);
+    for (const secret of [AUTOMATE_SECRET, AUTOMATE_TO, TG_TOKEN, GH_TOKEN, SECRET]) assert.ok(!text.includes(secret), `fuite : ${secret}`);
+  });
+
+  test("la clé d'Automate ne va qu'à Automate, jamais dans les journaux (même en cas d'erreurs)", async () => {
+    world.automateStatus = 500;
+    world.telegramSendFails = true;
+    world.updates = [{ update_id: 1, message: { chat: { id: Number(CHAT) }, text: "x" } }];
+    const env = { ...automateEnv(), KV: world.kv() };
+    await simulate(env, at(DAY, "06:00"), at(DAY, "06:40"));
+    for (const call of world.calls) {
+      const blob = JSON.stringify(call.headers) + String(call.body || "") + call.url;
+      if (call.url === AUTOMATE_URL) {
+        assert.ok(!blob.includes(GH_TOKEN) && !blob.includes(TG_TOKEN) && !blob.includes(SECRET), "autre clé envoyée à Automate");
+      } else {
+        assert.ok(!blob.includes(AUTOMATE_SECRET), `clé d'Automate envoyée ailleurs : ${call.url}`);
+      }
+    }
+    const out = logs.join("\n");
+    for (const secret of [AUTOMATE_SECRET, AUTOMATE_TO, TG_TOKEN, GH_TOKEN, SECRET]) assert.ok(!out.includes(secret), `fuite dans les journaux : ${secret}`);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════ diagnostic en direct + rien à jouer
+describe("diagnostic en direct et message de secours", () => {
+  const status = async (env) => {
+    world.clock = at(DAY, "05:00");
+    const res = await route(new Request(`https://reveil.example/status/${SECRET}`), env, world.clock);
+    return { text: await res.clone().text(), data: await res.json() };
+  };
+
+  test("tout va bien : aucune alerte, toutes les vérifications vertes", async () => {
+    const { data } = await status({ ...automateEnv(), KV: world.kv() });
+    assert.match(data.resume[0], /✅/);
+    assert.ok(data.verifications_en_direct.length >= 6);
+    assert.ok(data.verifications_en_direct.every((v) => v.ok), JSON.stringify(data.verifications_en_direct));
+  });
+
+  test("jeton GitHub refusé : le dit clairement, sans fuite", async () => {
+    const { text, data } = await status({ ...automateEnv({ GITHUB_TOKEN: "jeton-perime-12345" }), KV: world.kv() });
+    assert.match(data.resume[0], /⚠️.*refuse le jeton/);
+    for (const secret of ["jeton-perime-12345", GH_TOKEN, TG_TOKEN, AUTOMATE_SECRET, AUTOMATE_TO]) assert.ok(!text.includes(secret), `fuite : ${secret}`);
+  });
+
+  test("jeton qui ne voit pas le dépôt (404) : explique « Only select repositories »", async () => {
+    world.githubDown = 404;
+    const { data } = await status({ ...automateEnv(), KV: world.kv() });
+    assert.match(data.resume.join("\n"), /ne voit pas le dépôt/);
+  });
+
+  test("pas le droit d'Actions : le dit", async () => {
+    world.actionsStatus = 403;
+    const { data } = await status({ ...automateEnv(), KV: world.kv() });
+    assert.match(data.resume.join("\n"), /Actions.*Read and write/);
+  });
+
+  test("branche podcast vide : conseille de lancer le workflow", async () => {
+    world.meta = null; world.files = {};
+    const { data } = await status({ ...automateEnv(), KV: world.kv() });
+    assert.match(data.resume.join("\n"), /branche « podcast » est vide/);
+  });
+
+  test("sonnerie.mp3 absent : le dit", async () => {
+    delete world.files["sonnerie.mp3"];
+    const { data } = await status({ ...automateEnv(), KV: world.kv() });
+    assert.match(data.resume.join("\n"), /manque sonnerie\.mp3/);
+  });
+
+  test("bot Telegram absent : dit que le plan B et le journal ne marcheront pas", async () => {
+    const { data } = await status({ ...automateEnv({ TELEGRAM_BOT_TOKEN: "" }), KV: world.kv() });
+    assert.match(data.resume.join("\n"), /clé du bot/);
+  });
+
+  test("diagnose seul : jeton absent", async () => {
+    const out = await diagnose(readConfig({}));
+    assert.ok(out.problemes.some((p) => /GITHUB_TOKEN manque/.test(p)));
+  });
+
+  test("rien à jouer : 404 + message Telegram immédiat (une seule fois par tranche de 10 min)", async () => {
+    world.files = {}; world.meta = null;
+    const env = { ...automateEnv(), KV: world.kv() };
+    const url = `https://reveil.example/p/${SECRET}/reveil.mp3`;
+    world.clock = at(DAY, "08:31");
+    const res = await route(new Request(url), env, world.clock);
+    assert.equal(res.status, 404);
+    assert.match(res.headers.get("content-type"), /json/);
+    assert.equal(notifying().length, 1);
+    world.clock += 2 * MIN;
+    await route(new Request(url), env, world.clock);
+    assert.equal(notifying().length, 1, "pas de répétition");
+    world.clock += 11 * MIN;
+    await route(new Request(url), env, world.clock);
+    assert.equal(notifying().length, 2);
+  });
+
+  test("fichier trouvé : aucun message de secours", async () => {
+    const env = { ...automateEnv(), KV: world.kv() };
+    world.clock = at(DAY, "08:31");
+    world.meta = { ...world.meta, date: DAY, genere_a: new Date(world.clock - 10 * MIN).toISOString() };
+    const res = await route(new Request(`https://reveil.example/p/${SECRET}/reveil.mp3`), env, world.clock);
+    assert.equal(res.status, 200);
+    assert.equal(notifying().length, 0);
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════ les adresses secrètes
 describe("adresses secrètes", () => {
   const url = (path) => new Request(`https://reveil.example${path}`);
@@ -914,8 +1127,9 @@ describe("adresses secrètes", () => {
     const res = await route(url(`/status/${SECRET}`), env, world.clock);
     const text = await res.text();
     const data = JSON.parse(text);
-    assert.match(data.resume[0], /jeudi 8 octobre à 6 h 30 \(dans 90 min\)/);
-    assert.match(data.resume[1], /préparé vers 6 h 15/);
+    assert.match(data.resume[0], /✅/);   // les vérifications en direct passent en premier
+    assert.match(data.resume[1], /jeudi 8 octobre à 6 h 30 \(dans 90 min\)/);
+    assert.match(data.resume[2], /préparé vers 6 h 15/);
     assert.equal(data.configuration.adresse_macrodroid, true);
     for (const secret of [TG_TOKEN, GH_TOKEN, SECRET, RING_URL, "trigger.macrodroid"]) assert.ok(!text.includes(secret), `fuite : ${secret}`);
   });
@@ -939,6 +1153,38 @@ describe("adresses secrètes", () => {
     assert.deepEqual(podcasts()[0].inputs, { silencieux: "true", origine: "sonnette" });
     res = await route(url(`/test/${SECRET}/inconnu`), env, WAKE + 120_000);
     assert.equal(res.status, 404);
+  });
+
+  test("le téléphone n'arrive pas à jouer le son : /echec envoie le plan B tout de suite, une seule fois", async () => {
+    world.meta = { date: DAY, genere_a: new Date(WAKE - 10 * MIN).toISOString(), audio: true, mode: "normal", origine: "sonnette" };
+    const env = { ...automateEnv(), KV: world.kv() };
+    world.clock = WAKE + MIN;
+    let res = await route(url(`/p/${SECRET}/echec`), env, WAKE + MIN);
+    assert.equal(res.status, 200);
+    assert.equal(notifying().length, 1);
+    assert.match(notifying()[0].text, /bonjour/);
+    res = await route(url(`/p/${SECRET}/echec`), env, WAKE + MIN + 5000);       // double appel : pas de doublon
+    assert.equal(res.status, 200);
+    assert.equal(notifying().length, 1);
+    const status = await (await route(url(`/status/${SECRET}`), env, WAKE + 2 * MIN)).json();
+    assert.ok(status.telephone.dernier_echec_signale);
+  });
+
+  test("/echec sans Telegram → 400 ; mauvaise clé → 404", async () => {
+    const env = { ...automateEnv({ TELEGRAM_BOT_TOKEN: "" }), KV: world.kv() };
+    assert.equal((await route(url(`/p/${SECRET}/echec`), env, WAKE)).status, 400);
+    assert.equal((await route(url(`/p/mauvais/echec`), { ...automateEnv(), KV: world.kv() }, WAKE)).status, 404);
+  });
+
+  test("état : dit quand le téléphone a téléchargé le fichier, et lequel", async () => {
+    world.meta = { date: DAY, genere_a: new Date(WAKE - 10 * MIN).toISOString(), audio: true, mode: "normal", origine: "sonnette" };
+    const env = { ...baseEnv(), KV: world.kv() };
+    let status = await (await route(url(`/status/${SECRET}`), env, WAKE)).json();
+    assert.deepEqual(status.telephone, { dernier_telechargement: null, fichier: null, dernier_echec_signale: null });
+    await (await route(url(`/p/${SECRET}/reveil.mp3`), env, WAKE + MIN)).arrayBuffer();
+    status = await (await route(url(`/status/${SECRET}`), env, WAKE + 2 * MIN)).json();
+    assert.match(status.telephone.dernier_telechargement, /06:31$/);
+    assert.equal(status.telephone.fichier, "podcast + sonnerie");
   });
 
   test("essai de sonnerie sans adresse MacroDroid : message d'aide", async () => {

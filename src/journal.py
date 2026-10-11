@@ -508,7 +508,8 @@ def maybe_question(ctx: Ctx) -> None:
     if ctx.j.get("question_vocale", True):
         try:
             voice = ctx.tmp / f"{qid}.mp3"
-            tts.synthesize(q["texte"], reglages.apply_to_cfg(ctx.cfg, ctx.settings).get("voix", {}), voice)
+            # La question vient de ta mémoire : elle reste sur Edge (private=True), elle n'est jamais envoyée à Gemini.
+            tts.synthesize(q["texte"], reglages.apply_to_cfg(ctx.cfg, ctx.settings).get("voix", {}), voice, private=True)
         except Exception as exc:  # pas de voix ? la question reste lisible
             log.warning("Voix de la question impossible : %s", str(exc).splitlines()[0])
             voice = None
@@ -564,7 +565,7 @@ def settings_text(ctx: Ctx) -> str:
         f"📌 {consignes} consigne{'s' if consignes > 1 else ''} (/consignes)",
         f"📅 emploi du temps : {courses} cours (/cours)" if courses else "📅 emploi du temps : pas encore (envoie une image, ou /cours)",
         "",
-        "Pour changer : /reveil 6h30 · /duree 3 · /voix homme ou femme · /vitesse lent, normal ou rapide · /consigne … · /cours",
+        "Pour changer : /reveil 6h30 · /duree 3 · /voix essai (écouter les voix) · /vitesse lent, normal ou rapide · /consigne … · /cours",
     ]
     if not sonnette_recent(ctx):
         lines += ["", SONNETTE_NOTE]
@@ -592,11 +593,52 @@ def cmd_duree(ctx: Ctx, args: str) -> None:
     _set_podcast(ctx, "minutes", minutes)
 
 
+VOICE_HELP = (
+    "🎙️ Voix réalistes (Gemini) : /voix sulafat (chaleureuse) · /voix achird (amicale) · /voix kore · /voix charon · "
+    "/voix orus · /voix algieba · /voix puck · /voix zephyr (il y en a 30)\n"
+    "👂 /voix essai → je t'envoie des échantillons à écouter (ou /voix essai puck zephyr pour choisir lesquels)\n"
+    "Voix classiques (Edge) : /voix homme · /voix femme · /voix remy · /voix vivienne"
+)
+
+
+def _voix_essai(ctx: Ctx, args: str) -> None:
+    if not ctx.send:
+        ctx.say("(essai) J'enverrais des échantillons de voix.")
+        return
+    last = ctx.state.get("dernier_essai_voix") or ""
+    try:
+        recent = bool(last) and ctx.now - datetime.fromisoformat(last) < timedelta(minutes=10)
+    except ValueError:
+        recent = False
+    if recent:
+        ctx.say("🎙️ Les échantillons viennent d'être demandés : patience, ils arrivent (1 à 3 minutes).")
+        return
+    names = []
+    for word in re.split(r"[\s,;]+", norm(args)):
+        name = reglages.GEMINI_BY_LOWER.get(word)
+        if name and name not in names:
+            names.append(name)
+    try:
+        github.dispatch("voix.yml", {"voix": " ".join(names[:8]), "origine": "telegram"})
+    except github.GitHubError as exc:
+        log.warning("Lancement de l'essai des voix impossible : %s", exc)
+        if exc.missing:
+            ctx.say("⚠️ Je ne peux pas le lancer d'ici. Dans GitHub : onglet Actions → « Essai de voix » → Run workflow.")
+        else:
+            ctx.say(f"⚠️ GitHub n'a pas lancé l'essai : {exc}")
+        return
+    ctx.state["dernier_essai_voix"] = ctx.now.isoformat(timespec="seconds")
+    ctx.say("🎙️ C'est lancé ! Les échantillons arrivent ici dans 1 à 3 minutes (quelques secondes entre chaque). "
+            "Quand tu as choisi : /voix suivi du nom, par exemple /voix sulafat.")
+
+
 def cmd_voix(ctx: Ctx, args: str) -> None:
+    if args and norm(args).split()[:1] == ["essai"]:
+        _voix_essai(ctx, args)
+        return
     voice = reglages.parse_voix(args) if args else None
     if voice is None:
-        ctx.say("🎙️ Choisis : /voix homme · /voix femme · /voix remy · /voix vivienne\n"
-                + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
+        ctx.say(VOICE_HELP + "\n" + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
         return
     _set_podcast(ctx, "voix", voice)
 
