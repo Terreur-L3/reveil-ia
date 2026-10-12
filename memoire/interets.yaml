@@ -42,10 +42,20 @@ aime:
   intensite: 2
   derniere: '2026-10-09'
   poids: 2
+- sujet: actualités tech
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-12'
+  poids: 2
 - sujet: chef opérateur
   mentions: 1
   intensite: 2
   derniere: '2026-10-05'
+  poids: 2
+- sujet: coder
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-12'
   poids: 2
 - sujet: coding Python
   mentions: 1
@@ -61,6 +71,11 @@ aime:
   mentions: 1
   intensite: 2
   derniere: '2026-10-09'
+  poids: 2
+- sujet: projets
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-12'
   poids: 2
 - sujet: projets IA Cloud
   mentions: 1
