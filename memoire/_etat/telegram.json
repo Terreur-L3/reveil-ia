@@ -1,6 +1,6 @@
 {
  "version": 1,
- "offset": 176680304,
+ "offset": 176680305,
  "file": [],
  "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-11",
@@ -20,6 +20,10 @@
   [
    1791847205.1723032,
    22.5465
+  ],
+  [
+   1791847258.198845,
+   10.0
   ]
  ],
  "extractions": {},
