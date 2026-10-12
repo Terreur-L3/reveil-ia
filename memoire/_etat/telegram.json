@@ -1,8 +1,12 @@
 {
  "version": 1,
- "offset": 176680295,
+ "offset": 176680297,
  "file": [],
- "question_en_attente": null,
+ "question_en_attente": {
+  "id": "q20261012-2304",
+  "date": "2026-10-12T23:04:42.466556+02:00",
+  "texte": "Quelles nouvelles fonctionnalités comptes‑tu ajouter prochainement à ton mode Minecraft Weed pour le rendre encore plus immersif ?"
+ },
  "derniere_question_du_soir": "2026-10-11",
  "stt_historique": [
   [
@@ -16,6 +20,10 @@
   [
    1791838941.0766315,
    12.9465
+  ],
+  [
+   1791839115.2785108,
+   11.9865
   ]
  ],
  "extractions": {},
