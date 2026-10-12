@@ -47,6 +47,16 @@ aime:
   intensite: 2
   derniere: '2026-10-12'
   poids: 2
+- sujet: appareils photo
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
+- sujet: capteurs
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
 - sujet: chef opérateur
   mentions: 1
   intensite: 2
@@ -62,10 +72,30 @@ aime:
   intensite: 2
   derniere: '2026-10-09'
   poids: 2
+- sujet: drone cinéma
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
+- sujet: drone FPV
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
+- sujet: logiciel de compositing
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
 - sujet: mini‑projets
   mentions: 1
   intensite: 2
   derniere: '2026-10-09'
+  poids: 2
+- sujet: objectifs de cinéma
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
   poids: 2
 - sujet: podcast vocodé
   mentions: 1
