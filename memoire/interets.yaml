@@ -82,6 +82,11 @@ aime:
   intensite: 2
   derniere: '2026-10-13'
   poids: 2
+- sujet: extensions humaines robotiques
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
 - sujet: logiciel de compositing
   mentions: 1
   intensite: 2
@@ -112,10 +117,20 @@ aime:
   intensite: 2
   derniere: '2026-10-09'
   poids: 2
+- sujet: robotique low cost
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
+  poids: 2
 - sujet: technique
   mentions: 1
   intensite: 2
   derniere: '2026-10-09'
+  poids: 2
+- sujet: technologie peu chère
+  mentions: 1
+  intensite: 2
+  derniere: '2026-10-13'
   poids: 2
 candidats: []
 evite: []
