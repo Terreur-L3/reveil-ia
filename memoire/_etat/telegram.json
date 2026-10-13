@@ -1,33 +1,13 @@
 {
  "version": 1,
- "offset": 176680305,
+ "offset": 176680306,
  "file": [],
- "question_en_attente": {
-  "id": "q20261013-2150",
-  "date": "2026-10-13T21:50:51.724207+02:00",
-  "texte": "Comment imagines‑tu intégrer un drone FPV dans ton prochain projet de tracking Nuke, et quelles scènes aimerais‑tu filmer avec ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-13",
  "stt_historique": [
   [
-   1791847142.5708833,
-   10.0
-  ],
-  [
-   1791847145.3574924,
-   24.5865
-  ],
-  [
-   1791847201.7119224,
-   10.0
-  ],
-  [
-   1791847205.1723032,
-   22.5465
-  ],
-  [
-   1791847258.198845,
-   10.0
+   1791921190.293684,
+   31.4265
   ]
  ],
  "extractions": {},
