@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680306,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-13",
+ "question_en_attente": {
+  "id": "q20261014-2140",
+  "date": "2026-10-14T21:40:53.405922+02:00",
+  "texte": "Quel matériel comptes‑tu louer demain pour ton projet de tracking Nuke, et comment penses‑tu que ça va améliorer ton workflow ?"
+ },
+ "derniere_question_du_soir": "2026-10-14",
  "stt_historique": [
   [
    1791921190.293684,
