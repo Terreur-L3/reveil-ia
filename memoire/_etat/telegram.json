@@ -1,17 +1,13 @@
 {
  "version": 1,
- "offset": 176680306,
+ "offset": 176680307,
  "file": [],
- "question_en_attente": {
-  "id": "q20261015-2105",
-  "date": "2026-10-15T21:05:12.916624+02:00",
-  "texte": "Quel capteur ou objectif low‑cost envisages‑tu d’utiliser pour ton futur drone cinéma, et pourquoi ce choix te séduit‑il ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-15",
  "stt_historique": [
   [
-   1791921190.293684,
-   31.4265
+   1792137944.9059677,
+   13.3865
   ]
  ],
  "extractions": {},
