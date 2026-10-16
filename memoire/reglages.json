@@ -11,14 +11,16 @@
       "sam": "14:00",
       "dim": "14:00"
     },
-    "ponctuel": {},
-    "maj": "2026-10-11T13:54:09+02:00"
+    "ponctuel": {
+      "2026-10-16": "10:09"
+    },
+    "maj": "2026-10-16T10:06:12+02:00"
   },
   "podcast": {
     "minutes": null,
     "voix": "gemini:Achird",
     "vitesse": null
   },
-  "sonnette_vue": "2026-10-16T10:05:19+02:00",
-  "journal_offset": 176680307
+  "sonnette_vue": "2026-10-16T10:07:25+02:00",
+  "journal_offset": 176680308
 }
