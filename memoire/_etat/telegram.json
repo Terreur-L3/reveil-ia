@@ -1,17 +1,13 @@
 {
  "version": 1,
- "offset": 176680310,
+ "offset": 176680311,
  "file": [],
- "question_en_attente": {
-  "id": "q20261016-2046",
-  "date": "2026-10-16T20:46:22.571489+02:00",
-  "texte": "Quel petit gadget domotique low‑cost aimerais‑tu créer pour automatiser une tâche quotidienne, et comment imagines‑tu le construire ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-16",
  "stt_historique": [
   [
-   1792137944.9059677,
-   13.3865
+   1792193211.6432483,
+   10.0
   ]
  ],
  "extractions": {},
