@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680312,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-16",
+ "question_en_attente": {
+  "id": "q20261017-2119",
+  "date": "2026-10-17T21:19:16.312008+02:00",
+  "texte": "Dans quel type de scène imagines‑tu utiliser un drone cinéma low‑cost pour mettre en valeur tes effets de compositing, et quels défis anticipes‑tu ?"
+ },
+ "derniere_question_du_soir": "2026-10-17",
  "stt_historique": [
   [
    1792193211.6432483,
