@@ -41,8 +41,8 @@ Réponds par un objet JSON avec exactement ces clés :
 - "rappels" : liste d'objets {"texte", "date"} pour une échéance, un rendez-vous ou un événement à venir. "date" au format AAAA-MM-JJ, calculée à partir de la date du message ; ignore ce qui n'a pas de date précise ou déductible ;
 - "aime" : liste d'objets {"sujet", "intensite", "sensible"} : centres d'intérêt et passions durables, ou sujets dont <<prenom>> dit vouloir entendre parler. "sujet" = un libellé court (4 mots maximum) ; si le sujet figure déjà dans « Sujets connus », reprends EXACTEMENT son libellé. "intensite" de 1 (cité en passant) à 3 (passion, enthousiasme net). "sensible" = true si le sujet touche à la santé, la sexualité, la religion, la politique, l'argent ou des conflits personnels ;
 - "evite" : liste d'objets {"sujet", "sensible"} : sujets dont <<prenom>> ne veut plus entendre parler ou qui l'agacent ;
-- "consignes" : liste d'objets {"texte", "portee", "sensible"} : uniquement ce que <<prenom>> DEMANDE explicitement à l'assistant sur sa façon de parler ou de se comporter, de façon durable (« parle-moi plus décontracté », « fais des phrases courtes », « commence toujours par une blague », « pose-moi des questions plus précises »). "texte" = l'instruction à l'impératif, courte (140 caractères maximum), sans nom de personne. "portee" = "podcast" (le podcast du matin), "questions" (les questions « Inspi ») ou "tout". "sensible" = true si la consigne touche à la santé, l'argent, la religion, la politique ou l'intimité. N'invente jamais de consigne : un souhait raconté en passant n'en est pas une ;
-- "reglages" : liste d'objets {"cle", "valeur"} : uniquement si <<prenom>> demande explicitement de changer la durée du podcast ("cle" = "duree", "valeur" = nombre de minutes), la voix ("cle" = "voix", "valeur" = "homme" ou "femme") ou la vitesse de la voix ("cle" = "vitesse", "valeur" = "lent", "normal" ou "rapide").
+- "consignes" : liste d'objets {"texte", "portee", "jours", "sensible"} : uniquement ce que <<prenom>> DEMANDE explicitement à l'assistant sur sa façon de parler, de se comporter ou de citer ses informations, de façon durable (« parle-moi plus décontracté », « fais des phrases courtes », « commence toujours par une blague », « pose-moi des questions plus précises », « cite mes cours sans la salle »). "texte" = l'instruction à l'impératif, courte (140 caractères maximum), sans nom de personne. "portee" = "podcast" (le podcast du matin : actus, ton, longueur des phrases, blague…), "questions" (les questions « Inspi »), "perso" (la façon de CITER SES INFORMATIONS PERSONNELLES dans le podcast : ses cours / emploi du temps, ses anniversaires, ses rappels ; ex. « dis seulement le nom du cours et l'heure », « sans la salle », « souhaite les anniversaires avec chaleur ») ou "tout". "jours" = les jours où la consigne s'applique : "tous" (par défaut), "semaine" (lundi au vendredi), "weekend", ou une liste de jours (["lundi","mercredi"]) quand <<prenom>> la limite à certains jours (« le week-end, sois plus décontracté », « en semaine, va droit au but »). "sensible" = true si la consigne touche à la santé, l'argent, la religion, la politique ou l'intimité. N'invente jamais de consigne : un souhait raconté en passant n'en est pas une ;
+- "reglages" : liste d'objets {"cle", "valeur", "jours"} : uniquement si <<prenom>> demande explicitement de changer la durée du podcast ("cle" = "duree", "valeur" = nombre de minutes), la voix ("cle" = "voix", "valeur" = "homme" ou "femme") ou la vitesse de la voix ("cle" = "vitesse", "valeur" = "lent", "normal" ou "rapide"). "jours" = comme pour les consignes : "tous" par défaut, "semaine", "weekend" ou une liste de jours. S'il donne des valeurs différentes selon les jours (« 3 minutes en semaine et 5 le week-end »), fais UN objet par valeur : {"cle": "duree", "valeur": 3, "jours": "semaine"} et {"cle": "duree", "valeur": 5, "jours": "weekend"}.
 Ignore les demandes sur l'heure du réveil ou de l'alarme : un autre programme s'en charge. Une clé sans contenu reste une liste vide. Aucun commentaire en dehors du JSON."""
 
 
@@ -78,10 +78,18 @@ class Extraction:
         for name, key in (("faits", "texte"), ("anniversaires", "nom"), ("rappels", "texte"),
                           ("aime", "sujet"), ("evite", "sujet"), ("consignes", "texte"), ("reglages", "cle")):
             mine = getattr(self, name)
-            seen = {norm(x[key]) for x in mine}
+
+            def ident(item, key=key, name=name):
+                base = norm(item[key])
+                if name in ("consignes", "reglages"):      # la même consigne pour d'autres jours n'est pas un doublon
+                    base += ("|" + ",".join(item.get("jours") or []) + ("|autres" if item.get("autres") else "")
+                             + ("|refus" if item.get("refus") else ""))
+                return base
+
+            seen = {ident(x) for x in mine}
             for item in getattr(other, name):
-                if norm(item[key]) not in seen:
-                    seen.add(norm(item[key]))
+                if ident(item) not in seen:
+                    seen.add(ident(item))
                     mine.append(item)
 
 
@@ -175,22 +183,59 @@ def parse(text: str, entry_date: str, allow_instructions: bool = True) -> Extrac
             if not isinstance(c, dict):
                 continue
             texte = _clip(c.get("texte"), 160)
-            if len(texte) < 8 or any(norm(texte) == norm(x["texte"]) for x in ex.consignes):
+            scope = reglages.scope_from_value(c.get("jours"))
+            if scope.problem:        # « demain seulement » n'est pas une consigne durable : on ne la range pas (elle vaudrait pour toujours)
+                continue
+            days = [reglages.DAYS[d] for d in scope.days or ()]
+            if len(texte) < 8 or any(norm(texte) == norm(x["texte"]) and days == x.get("jours", []) for x in ex.consignes):
                 continue
             portee = str(c.get("portee", "tout")).strip().lower()
-            ex.consignes.append({
-                "texte": texte, "portee": portee if portee in ("podcast", "questions", "tout") else "tout",
+            item = {
+                "texte": texte, "portee": portee if portee in ("podcast", "questions", "perso", "tout") else "tout",
                 "sensible": _truthy(c.get("sensible")) or is_sensitive(texte),
-            })
-        seen_keys: set[str] = set()
-        for r in _items(data.get("reglages"))[:4]:
+            }
+            if days:
+                item["jours"] = days
+            ex.consignes.append(item)
+        seen_keys: set[tuple] = set()
+        for r in _items(data.get("reglages"))[:6]:
             if not isinstance(r, dict):
                 continue
             valid = reglages.validate_setting(r.get("cle"), r.get("valeur"))
-            if valid and valid[0] not in seen_keys:
-                seen_keys.add(valid[0])
-                ex.reglages.append({"cle": valid[0] if valid[0] != "minutes" else "duree", "valeur": r.get("valeur")})
+            if not valid:
+                continue
+            scope = reglages.scope_from_value(r.get("jours"))
+            ident = (valid[0], scope.days, scope.rest, scope.problem)
+            if ident in seen_keys:
+                continue
+            seen_keys.add(ident)
+            item = {"cle": valid[0] if valid[0] != "minutes" else "duree", "valeur": r.get("valeur")}
+            if scope.days:
+                item["jours"] = [reglages.DAYS[d] for d in scope.days]
+            if scope.rest:
+                item["autres"] = True
+            if scope.problem:
+                item["refus"] = scope.problem
+            ex.reglages.append(item)
     return ex
+
+
+def drop_duree_conflicts(items: list[dict], orders) -> list[dict]:
+    """`items` : les réglages proposés par l'IA ; `orders` : les durées déjà lues à règles fixes dans la même phrase et déjà
+    appliquées (reglages.parse_spoken_durations). Pour les mêmes jours, la phrase lue l'emporte ; une durée « tous les jours »
+    de l'IA est écartée aussi (elle effacerait les durées par jour). Le reste de ce que propose l'IA est gardé."""
+    if not orders:
+        return items
+    taken = {d for order in orders for d in (order.days or ())}
+    out = []
+    for item in items:
+        if item.get("cle") == "duree":
+            days = {reglages.DAYS.index(d) for d in item.get("jours") or [] if d in reglages.DAYS}
+            rest = bool(item.get("autres"))
+            if (not days and not rest) or (days & taken) or (rest and any(o.rest for o in orders)):
+                continue
+        out.append(item)
+    return out
 
 
 # --------------------------------------------------------------------------- découpage et appel

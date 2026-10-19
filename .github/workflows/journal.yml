@@ -36,11 +36,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Les paquets déjà téléchargés sont gardés d'un passage à l'autre (clé = contenu de requirements.txt) :
+      # l'installation passe de ~40 s à ~8 s, donc le bot répond plus vite.
+      # Ce n'est qu'un accélérateur : s'il tombe en panne, le journal continue, simplement un peu plus lentement.
+      # (v5 : tourne sur Node 24 ; la v4 tourne sur Node 20, que GitHub retire de ses machines à l'automne 2026.)
+      - name: Garder les paquets Python en cache
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
       - name: Installer les dépendances
         id: install
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet -r requirements.txt
+          .venv/bin/pip install --quiet --disable-pip-version-check -r requirements.txt
 
       - name: Lire Telegram, transcrire, ranger, poser la question
         env:

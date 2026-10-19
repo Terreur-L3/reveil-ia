@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import jingle, llm, news, perso, reglages, script_writer, triage, tts
+from . import jingle, llm, news, perso, perso_style, reglages, script_writer, triage, tts
 from .fr import count_words, date_fr
 from .memoire import Memoire
 
@@ -65,7 +65,7 @@ def fallback_script(prenom: str, perso_text: str, now: datetime) -> str:
 
 
 def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None, secours: bool = False,
-                      silent: bool = False, voix_note: str = "") -> bool | None:
+                      silent: bool = False, voix_note: str = "", note: str = "") -> bool | None:
     """Dépose le podcast dans la conversation Telegram. None = pas configuré, False = échec."""
     if not (cfg.get("telegram") or {}).get("envoyer_podcast", True):
         return None
@@ -80,11 +80,39 @@ def _send_to_telegram(mp3: Path, cfg: dict, now: datetime, duration: int | None,
             caption = f"Podcast de secours du {date_fr(now)} (les actus n'ont pas pu être préparées)"
         if voix_note:
             caption += f"\n(🎙️ {voix_note})"
+        if note:
+            caption += f"\n{note}"
         bot.send_voice(mp3, caption=caption[:1000], duration=duration, silent=silent)
         return True
     except Exception as exc:  # le podcast est déjà publié : l'envoi n'est qu'un confort
         log.warning("Envoi Telegram impossible : %s", exc)
         return False
+
+
+def style_perso(mem: Memoire, segment: perso.Segment, cfg: dict, keys: dict[str, str], prenom: str,
+                now: datetime) -> perso_style.Result:
+    """Applique tes consignes « perso » aux phrases sur tes cours, anniversaires et rappels (voir perso_style).
+    Sans consigne (ou si `perso.style_ia: false`), le texte du programme reste tel quel et rien ne part vers une IA."""
+    if not segment.text or not (cfg.get("perso") or {}).get("style_ia", True):
+        return perso_style.Result(segment.text)
+    try:
+        rules = mem.consignes_for("perso", allow_private=True, day=now.date())
+    except Exception as exc:
+        log.warning("Consignes perso ignorées : %s", exc)
+        return perso_style.Result(segment.text)
+    if not rules:
+        return perso_style.Result(segment.text)
+    result = perso_style.restyle(segment.text, rules, cfg=cfg, keys=keys, prenom=prenom, anchors=segment.anchors)
+    if result.fallback:
+        log.warning("Consignes perso non appliquées : %s", result.status)
+    return result
+
+
+def _style_note(style: perso_style.Result) -> str:
+    """La mention ajoutée sous le podcast dans Telegram quand tes consignes perso n'ont pas pu être appliquées."""
+    if not style.fallback:
+        return ""
+    return "ℹ️ consigne sur tes infos perso non appliquée ce matin : " + style.status.partition(":")[2].strip()[:120]
 
 
 def generate(
@@ -112,21 +140,29 @@ def generate(
 
     mem = Memoire(racine)
     settings = mem.load_reglages()
-    cfg = reglages.apply_to_cfg(cfg, settings)  # durée, voix et vitesse choisies dans Telegram
+    cfg = reglages.apply_to_cfg(cfg, settings, now.date())  # durée, voix et vitesse choisies dans Telegram, jour par jour
     consignes: list[str] = []
     if (cfg.get("perso") or {}).get("consignes_dans_podcast", True):
         try:  # seules les consignes de style non personnelles accompagnent la rédaction (qui peut passer par Gemini)
-            consignes = mem.consignes_for("podcast", allow_private=False)
+            consignes = mem.consignes_for("podcast", allow_private=False, day=now.date())
         except Exception as exc:
             log.warning("Consignes ignorées : %s", exc)
 
     profile = triage.load_profile(racine)
     prenom = profile.get("prenom") or str(cfg.get("prenom") or "").strip()
+    style = perso_style.Result("")
     try:  # les infos perso ne doivent jamais empêcher le podcast
-        perso_text, n_perso = perso.build_segment(racine, cfg.get("perso"), now.date())
+        segment = perso.build_segment_detail(racine, cfg.get("perso"), now.date())
+        perso_text, n_perso = segment.text, segment.n
     except Exception as exc:
         log.warning("Infos perso ignorées : %s", exc)
-        perso_text, n_perso = "", 0
+        segment, perso_text, n_perso = None, "", 0
+    if segment is not None:
+        try:  # tes consignes sur la façon de les dire : au pire, le texte du programme reste tel quel
+            style = style_perso(mem, segment, cfg, keys, prenom, now)
+            perso_text = style.text
+        except Exception as exc:
+            log.warning("Consignes perso ignorées : %s", exc)
 
     res = None
     raison = ""
@@ -171,7 +207,7 @@ def generate(
         } if res is not None else {
             "ok": False, "modele": "", "actus": 0, "retenues": 0, "calme": False, "profil": profile.get("source", "?"),
         },
-        "perso": {"lignes": n_perso},
+        "perso": {"lignes": n_perso, **({"consignes": style.rules, "style": style.status} if style.rules else {})},
         "consignes": len(consignes),
         "origine": origine or "local",
         "audio": False,
@@ -203,7 +239,7 @@ def generate(
         else:
             if send_telegram:
                 sent = _send_to_telegram(mp3, cfg, now, meta.get("duree_s"), secours=bool(raison), silent=silent,
-                                         voix_note=meta.get("voix_note", ""))
+                                         voix_note=meta.get("voix_note", ""), note=_style_note(style))
                 if sent is not None:
                     meta["telegram"] = sent
 

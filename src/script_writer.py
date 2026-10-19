@@ -1,7 +1,8 @@
 """Écriture du texte du podcast à partir des sujets choisis.
 
-Règle d'or : aucune info perso n'est envoyée à l'IA. Le texte perso (anniversaires, rappels) est
-fabriqué ailleurs (perso.py) et inséré ici à la place d'un repère [[PERSO]] laissé par le rédacteur.
+Règle d'or : aucune info perso n'est envoyée à l'IA qui écrit (Gemini). Le texte perso (anniversaires, rappels, cours) est
+fabriqué ailleurs (perso.py ; reformulé par Groq seul si tu as une consigne dessus : perso_style.py) et inséré ici à la place
+d'un repère [[PERSO]] laissé par le rédacteur.
 """
 from __future__ import annotations
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -368,6 +368,414 @@ class TestConsignes(V4Case):
         self.assertIn("ne me parle pas de mon argent", asked)                 # privée : permise pour les questions (Groq seul)
         self.assertNotIn("commence par une blague", asked)                    # c'est une consigne de podcast
         self.assertEqual(self.world.calls("/gemini/"), [])
+
+
+# =========================================================================== réglages et consignes, jour par jour
+WEEK, WEEKEND = (0, 1, 2, 3, 4), (5, 6)
+SATURDAY, MONDAY = date(2026, 10, 10), date(2026, 10, 12)
+
+
+class TestPodcastByDayInChat(V4Case):
+    """« 3 minutes en semaine, 5 le week-end » : ce que tu demandes par jour est enfin pris en compte."""
+
+    def minutes(self, day: date):
+        return reglages.podcast_for(self.settings(), day)["minutes"]
+
+    def test_two_lengths_in_one_command(self):
+        (reply,) = self.say("/duree 3 semaine 5 week-end")
+        self.assertIn("• durée du podcast en semaine : environ 3 minutes", reply)
+        self.assertIn("• durée du podcast le week-end : environ 5 minutes", reply)
+        self.assertIn("🎙️ Podcast : environ 3 min en semaine, 5 min le week-end", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        raw = self.raw_settings()["podcast"]
+        self.assertEqual(raw["minutes"], None)
+        self.assertEqual(raw["jours"]["lun"], {"minutes": 3})
+        self.assertEqual(raw["jours"]["dim"], {"minutes": 5})
+        self.assertEqual(self.world.calls("/groq/chat") + self.world.calls("/gemini/"), [])        # une commande n'appelle aucune IA
+
+    def test_the_usual_ways_to_say_it_all_work(self):
+        for text in ("/duree 3 minutes en semaine, 5 le week-end", "/duree en semaine 3 et le week-end 5",
+                     "/duree 3 du lundi au vendredi ; 5 le samedi et le dimanche"):
+            with self.subTest(text):
+                self.say("/duree 7")
+                self.say(text)
+                self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_only_one_kind_of_day(self):
+        self.say("/duree 5 week-end")
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (None, 5))
+        (reply,) = self.say("/duree 1,5 lundi")
+        self.assertIn("durée du podcast le lundi : environ 1,5 minutes", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(date(2026, 10, 13))), (1.5, None))
+
+    def test_the_other_days(self):
+        (reply,) = self.say("/duree 5 le week-end, 3 sinon")
+        self.assertIn("durée du podcast les autres jours : environ 3 minutes", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_a_length_for_every_day_replaces_the_day_by_day_ones(self):
+        self.say("/duree 3 semaine 5 week-end")
+        self.say("/duree 4")
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (4, 4))
+        self.assertNotIn("jours", self.raw_settings()["podcast"])
+
+    def test_unclear_orders_change_nothing_and_say_why(self):
+        self.say("/duree 3 semaine 5 week-end")
+        before = self.raw_settings()["podcast"]
+        for text, expected in (("/duree 3 en semaine et 5", "Je n'ai pas compris à quels jours"),
+                               ("/duree 4 demain", "pas encore une date précise"),
+                               ("/duree 3 sauf le dimanche", "une exception"),
+                               ("/duree 6 du 12 au 15 octobre", "une période")):
+            with self.subTest(text):
+                (reply,) = self.say(text)
+                self.assertIn(expected, reply)
+                self.assertEqual(self.raw_settings()["podcast"], before)
+
+    def test_voice_and_speed_by_day(self):
+        (reply,) = self.say("/voix femme en semaine, kore le week-end")
+        self.assertIn("voix en semaine : femme", reply)
+        self.assertIn("voix le week-end : Kore (Gemini)", reply)
+        (reply,) = self.say("/vitesse lent semaine rapide week-end")
+        self.assertIn("vitesse de la voix en semaine : -10%", reply)
+        self.assertEqual(reglages.podcast_for(self.settings(), SATURDAY),
+                         {"minutes": None, "voix": "gemini:Kore", "vitesse": "+10%"})
+        self.assertEqual(reglages.podcast_for(self.settings(), MONDAY),
+                         {"minutes": None, "voix": "fr-FR-DeniseNeural", "vitesse": "-10%"})
+
+    def test_a_single_value_keeps_the_old_confirmation(self):
+        (reply,) = self.say("/voix femme")
+        self.assertTrue(reply.startswith("🔧 Réglé : voix : femme.\n"))
+
+    def test_the_help_and_the_settings_screen_mention_the_days(self):
+        self.assertIn("/duree 3 semaine 5 week-end", self.say("/duree")[0])
+        self.assertIn("/duree 3 semaine 5 week-end", self.say("/reglages")[0])
+        self.say("/duree 3 semaine 5 week-end")
+        self.assertIn("🎙️ Podcast : environ 3 min en semaine, 5 min le week-end", self.say("/reglages")[0])
+
+    def test_asking_in_a_message_sets_a_length_for_each_kind_of_day(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 3, "jours": "semaine"},
+                                  {"cle": "duree", "valeur": 5, "jours": "weekend"}])
+        (reply,) = self.say("Le podcast idéal pour moi : trois minutes en semaine et cinq minutes le week-end, "      # sans « je voudrais » : l'IA
+                            "j'ai plus de temps quand je ne suis pas en cours.")
+        self.assertIn("• 🔧 durée du podcast en semaine : environ 3 minutes", reply)
+        self.assertIn("• 🔧 durée du podcast le week-end : environ 5 minutes", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_the_other_days_proposed_by_the_ai_never_wipe_the_weekend(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 5, "jours": "weekend"},
+                                  {"cle": "duree", "valeur": 3, "jours": "les autres jours"}])
+        self.say("Je voudrais cinq minutes le week-end et trois minutes les autres jours, ce serait parfait pour moi.")
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_a_date_proposed_by_the_ai_is_refused_out_loud(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 4, "jours": "demain"}])
+        (reply,) = self.say("Demain j'aimerais un podcast plus long que d'habitude, j'ai un long trajet en train.")
+        self.assertIn("⚠️ réglage non appliqué", reply)
+        self.assertNotIn("🔧", reply)
+        self.assertEqual(self.settings()["podcast"], {"minutes": None, "voix": None, "vitesse": None})
+
+    def test_wake_orders_still_come_first_and_are_untouched(self):
+        (reply,) = self.say("Mets le podcast à 7h30 en semaine et à 9h le week-end.")
+        self.assertIn("⏰ Réveil en semaine : 7 h 30.", reply)
+        self.assertEqual(self.settings()["podcast"], {"minutes": None, "voix": None, "vitesse": None})
+
+
+class TestConsignesByDay(V4Case):
+    def test_a_rule_for_the_weekend_only_comes_out_on_weekends(self):
+        (reply,) = self.say("/consigne le week-end, parle-moi de façon plus décontractée")
+        self.assertIn("concerne : tout · le week-end", reply)
+        (rule,) = self.mem.consignes()
+        self.assertEqual(rule["jours"], ["sam", "dim"])
+        self.assertIn("· le week-end", self.say("/consignes")[0])
+        for scope in ("podcast", "questions"):
+            self.assertEqual(self.mem.consignes_for(scope, allow_private=False, day=SATURDAY), [rule["texte"]])
+            self.assertEqual(self.mem.consignes_for(scope, allow_private=False, day=MONDAY), [])
+        self.assertEqual(len(self.mem.consignes_for("podcast", allow_private=False)), 1)             # sans jour : aucun filtre
+
+    def test_a_rule_without_days_is_for_every_day(self):
+        self.say("/consigne fais des phrases courtes")
+        (rule,) = self.mem.consignes()
+        self.assertNotIn("jours", rule)
+        for day in (MONDAY, SATURDAY):
+            self.assertEqual(self.mem.consignes_for("podcast", allow_private=False, day=day), ["fais des phrases courtes"])
+
+    def test_several_named_days(self):
+        self.say("/consigne le lundi et le mercredi, va droit au but")
+        self.assertEqual(self.mem.consignes()[0]["jours"], ["lun", "mer"])
+        self.assertIn("· le lundi et le mercredi", self.say("/consignes")[0])
+
+    def test_an_exception_or_a_date_is_refused_not_stored_for_ever(self):
+        for text in ("/consigne sauf le dimanche, sois bref", "/consigne le 12 octobre, sois bref", "/consigne ce week-end, sois bref",
+                     "/consigne lundi prochain, sois bref"):
+            with self.subTest(text):
+                self.assertIn("pour certains jours de la semaine", self.say(text)[0])
+        self.assertEqual(self.mem.consignes(), [])
+
+    def test_a_subject_is_not_mistaken_for_a_day(self):
+        self.say("/consigne parle-moi des films du week-end")
+        self.say("/consigne résume les actus du week-end")
+        self.assertEqual(len(self.mem.consignes()), 2)
+        self.assertTrue(all("jours" not in c for c in self.mem.consignes()), self.mem.consignes())
+
+    def test_a_day_at_the_start_or_the_end_is_a_condition_and_the_reply_says_so(self):
+        for text in ("/consigne sois plus décontracté pendant le week-end", "/consigne en semaine, va droit au but"):
+            self.say(text)
+        self.assertEqual([c["jours"] for c in self.mem.consignes()], [["sam", "dim"], ["lun", "mar", "mer", "jeu", "ven"]])
+
+    def test_the_ai_can_limit_a_rule_to_some_days(self):
+        self.extraction(consignes=[{"texte": "Sois plus décontracté", "portee": "podcast", "jours": "weekend", "sensible": False},
+                                   {"texte": "Va droit au but", "portee": "podcast", "jours": ["lundi", "mardi"], "sensible": False}])
+        (reply,) = self.say("Le week-end j'aimerais un ton plus décontracté, et en début de semaine va droit au but dans le podcast.")
+        self.assertIn("📌 consigne retenue : « Sois plus décontracté » (le week-end)", reply)
+        self.assertIn("📌 consigne retenue : « Va droit au but » (le lundi et le mardi)", reply)
+        self.assertEqual([c["jours"] for c in self.mem.consignes()], [["sam", "dim"], ["lun", "mar"]])
+
+    def test_the_same_words_for_other_days_are_not_a_duplicate(self):
+        self.extraction(consignes=[{"texte": "Sois plus décontracté", "portee": "podcast", "jours": "weekend"},
+                                   {"texte": "Sois plus décontracté", "portee": "podcast", "jours": "semaine"}])
+        self.say("Je veux un ton plus décontracté le week-end comme en semaine dans le podcast, mais pas pareil.")
+        self.assertEqual(len(self.mem.consignes()), 2)
+        self.extraction(consignes=[{"texte": "Sois plus décontracté", "portee": "podcast", "jours": "weekend"}])
+        self.say("Je répète : ton plus décontracté le week-end dans le podcast, merci beaucoup pour ça.")
+        self.assertEqual(len(self.mem.consignes()), 2)
+
+    def test_a_date_proposed_by_the_ai_is_not_kept_as_an_everyday_rule(self):
+        self.extraction(consignes=[{"texte": "Sois bref", "portee": "podcast", "jours": "demain"}])
+        (reply,) = self.say("Demain matin sois bref dans le podcast, j'ai un train à prendre très tôt.")
+        self.assertNotIn("📌", reply)
+        self.assertEqual(self.mem.consignes(), [])
+
+    def test_the_same_text_for_the_same_days_is_still_a_duplicate(self):
+        self.say("/consigne le week-end, sois bref")
+        self.assertIn("existe déjà", self.say("/consigne le week-end, sois bref")[0])
+
+
+class TestPersoRules(V4Case):
+    """« Cite mes cours d'une certaine manière » : une consigne qui parle de tes cours, anniversaires ou rappels."""
+
+    def test_a_rule_about_the_courses_is_a_perso_rule(self):
+        (reply,) = self.say("/consigne cite mes cours sans la salle")
+        self.assertIn("concerne : mes infos perso (cours, anniversaires, rappels)", reply)
+        self.assertIn("Groq, jamais par Gemini", reply)
+        self.assertIn("/perso", reply)
+        (rule,) = self.mem.consignes()
+        self.assertEqual(rule["portee"], "perso")
+        self.assertIn("mes infos perso", self.say("/consignes")[0])
+
+    def test_where_each_kind_of_rule_goes(self):
+        self.say("/consigne cite mes cours sans la salle")
+        self.say("/consigne dans le podcast, commence par une petite blague")
+        self.say("/consigne pose-moi des questions sur mes cours")
+        self.say("/consigne parle-moi de façon décontractée")
+        texts = lambda scope: self.mem.consignes_for(scope, allow_private=True)                     # noqa: E731
+        self.assertEqual(texts("perso"), ["cite mes cours sans la salle"])
+        self.assertEqual(texts("podcast"), ["dans le podcast, commence par une petite blague", "parle-moi de façon décontractée"])
+        self.assertEqual(texts("questions"), ["pose-moi des questions sur mes cours", "parle-moi de façon décontractée"])
+
+    def test_an_old_rule_filed_under_podcast_or_everything_still_counts(self):
+        self.mem.add_consigne("cite mes cours en commençant par l'heure", "podcast", "2026-10-01", "telegram")
+        self.mem.add_consigne("souhaite les anniversaires avec chaleur", "tout", "2026-10-01", "telegram")
+        self.mem.add_consigne("fais des phrases courtes", "tout", "2026-10-01", "telegram")
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=True),
+                         ["cite mes cours en commençant par l'heure", "souhaite les anniversaires avec chaleur"])
+        listing = self.say("/consignes")[0]
+        self.assertIn("le podcast + mes infos perso", listing)
+
+    def test_the_word_cours_alone_is_not_enough(self):
+        for text in ("au cours de la semaine, parle-moi plus de tech", "donne-moi le cours du bitcoin chaque matin",
+                     "garde les sujets en cours plus longtemps"):
+            self.mem.add_consigne(text, "podcast", "2026-10-01", "telegram")
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=True), [])
+        self.assertEqual(len(self.mem.consignes_for("podcast", allow_private=False)), 3)
+
+    def test_the_ai_files_a_rule_about_the_courses_under_perso(self):
+        self.extraction(consignes=[{"texte": "Cite mes cours sans la salle", "portee": "perso", "sensible": False}])
+        (reply,) = self.say("Quand tu me cites mes cours le matin, dis seulement le nom et l'heure, je n'ai pas besoin de la salle.")
+        self.assertIn("📌 consigne retenue : « Cite mes cours sans la salle » (pour tes infos perso)", reply)
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=True), ["Cite mes cours sans la salle"])
+
+    def test_a_private_rule_stays_available_to_groq_only(self):
+        self.mem.add_consigne("ne cite jamais mon cours de thérapie de groupe", "perso", "2026-10-01", "telegram", prive=True)
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=False), [])
+        self.assertEqual(len(self.mem.consignes_for("perso", allow_private=True)), 1)
+
+    def test_a_perso_rule_for_certain_days(self):
+        self.say("/consigne le lundi, cite mes cours sans la salle")
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=True, day=MONDAY), ["le lundi, cite mes cours sans la salle"])
+        self.assertEqual(self.mem.consignes_for("perso", allow_private=True, day=SATURDAY), [])
+
+
+class TestPersoPreview(V4Case):
+    """/perso : écouter à l'avance (en texte) comment tes cours, anniversaires et rappels seront dits."""
+
+    BASE = "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h 30, en salle 204, puis Prise de vue de 14 h à 17 h, en Studio B."
+
+    def setUp(self):
+        super().setUp()
+        data = edt.empty()
+        data["semaine_type"]["lun"] = [
+            {"debut": "09:00", "fin": "12:30", "cours": "Étalonnage", "salle": "204", "prof": "M. Durand"},
+            {"debut": "14:00", "fin": "17:00", "cours": "Prise de vue", "salle": "Studio B"}]
+        edt.save(self.mem.p_edt, data)
+
+    def restyle_calls(self):
+        return [r for r in self.world.calls("/groq/chat") if "Tu réécris un court passage" in r.plain]
+
+    def test_without_a_rule_it_shows_the_base_text_and_calls_no_ai(self):
+        (reply,) = self.say("/perso demain")
+        self.assertIn("demain (lundi 5 octobre)", reply)
+        self.assertIn(self.BASE, reply)
+        self.assertIn("Aucune consigne sur tes infos perso", reply)
+        self.assertEqual(self.world.calls("/groq/chat") + self.world.calls("/gemini/"), [])
+
+    def test_with_a_rule_the_text_is_rewritten_then_checked(self):
+        self.say("/consigne cite mes cours sans la salle")
+        self.world.perso_fn = lambda prompt: "Ce matin, Étalonnage de 9 h à 12 h 30, puis Prise de vue de 14 h à 17 h."
+        (reply,) = self.say("/perso demain")
+        self.assertIn("« Ce matin, Étalonnage de 9 h à 12 h 30, puis Prise de vue de 14 h à 17 h. »", reply)
+        self.assertIn("✅ 1 consigne appliquée", reply)
+        (call,) = self.restyle_calls()
+        self.assertIn("- cite mes cours sans la salle", call.plain)
+        self.assertIn(self.BASE, call.plain)
+        self.assertEqual(self.world.calls("/gemini/"), [])                                          # jamais Gemini
+
+    def test_a_rewrite_that_changes_an_hour_is_refused_and_the_base_text_is_shown(self):
+        self.say("/consigne cite mes cours en plus décontracté")
+        self.world.perso_fn = lambda prompt: "Ce matin, Étalonnage de 10 h à 12 h 30, puis Prise de vue de 14 h à 17 h."
+        (reply,) = self.say("/perso demain")
+        self.assertIn("⚠️ Je n'ai pas pu appliquer ta consigne : nombre ajouté ou changé : 10", reply)
+        self.assertIn("nombre ajouté ou changé : 10", reply)
+        self.assertIn(self.BASE, reply)
+        self.assertNotIn("10 h", reply.split("⚠️")[0])
+        self.assertEqual(len(self.restyle_calls()), 2)                                             # une correction a été tentée
+
+    def test_a_model_that_is_down_never_breaks_the_command(self):
+        self.say("/consigne cite mes cours en plus décontracté")
+        smart = self.world.groq_fn
+        self.world.groq_fn = lambda req, model, body: (500, "down") if "Tu réécris" in json.dumps(body, ensure_ascii=False) else smart(req, model, body)
+        (reply,) = self.say("/perso demain")
+        self.assertIn("⚠️ Je n'ai pas pu appliquer ta consigne : l'IA n'a pas répondu", reply)
+        self.assertIn(self.BASE, reply)
+
+    def test_a_day_without_anything_to_say(self):
+        (reply,) = self.say("/perso samedi")
+        self.assertIn("rien à dire", reply)
+        self.assertEqual(self.world.calls("/groq/chat"), [])
+
+    def test_a_rule_for_other_days_does_not_apply(self):
+        self.say("/consigne le mardi, cite mes cours sans la salle")
+        (reply,) = self.say("/perso demain")                                                        # demain = lundi
+        self.assertIn("Aucune consigne sur tes infos perso", reply)
+        self.assertEqual(self.restyle_calls(), [])
+
+    def test_the_switch_in_the_config_turns_it_all_off(self):
+        self.cfg["perso"]["style_ia"] = False
+        self.say("/consigne cite mes cours sans la salle")
+        (reply,) = self.say("/perso demain")
+        self.assertIn(self.BASE, reply)
+        self.assertEqual(self.restyle_calls(), [])
+
+    def test_the_command_is_in_the_help(self):
+        self.assertIn("/perso", self.say("/reglages")[0])
+
+
+class TestSpokenDurationsInChat(V4Case):
+    """« Je voudrais un podcast de 3 minutes en semaine et de 5 le week-end », dit en phrase ou en vocal : pris en compte tout de
+    suite, à règles fixes, sans dépendre de l'IA d'extraction."""
+
+    ORDER = "Je voudrais un podcast de 3 minutes en semaine et de 5 minutes le week-end."
+
+    def minutes(self, day: date):
+        return reglages.podcast_for(self.settings(), day)["minutes"]
+
+    def test_a_sentence_sets_both_lengths_at_once_without_any_ai(self):
+        (reply,) = self.say(self.ORDER)
+        self.assertIn("• durée du podcast en semaine : environ 3 minutes", reply)
+        self.assertIn("• durée du podcast le week-end : environ 5 minutes", reply)
+        self.assertIn("🎙️ Podcast : environ 3 min en semaine, 5 min le week-end", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        self.assertEqual(self.mem.entries(), [])                                         # un ordre n'est pas une entrée de journal
+        self.assertEqual(self.world.calls("/groq/chat") + self.world.calls("/gemini/"), [])
+
+    def test_numbers_in_words_and_the_shortcut_of_the_second_value(self):
+        (reply,) = self.say("Je voudrais un podcast de trois minutes en semaine et de cinq le week-end, merci.")
+        self.assertIn("• durée du podcast en semaine : environ 3 minutes", reply)
+        self.assertIn("• durée du podcast le week-end : environ 5 minutes", reply)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_a_voice_note_works_the_same(self):
+        self.world.transcripts = ["Alors, je voudrais que le podcast dure trois minutes en semaine et cinq minutes le week-end."]
+        self.voice(OGG, duration=8)
+        with no_ffmpeg():
+            summary = self.run_once()
+        self.assertEqual((summary["entrees"], summary["en_file"]), (0, 0))
+        self.assertEqual(self.mem.entries(), [])
+        self.assertIn("• durée du podcast le week-end : environ 5 minutes", self.last_message())
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_it_replaces_what_was_set_before(self):
+        self.say("/duree 6")
+        self.say(self.ORDER)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        self.say("Je voudrais un podcast de 4 minutes tous les jours, ce serait plus simple.")      # sans jour précis : c'est à l'IA
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_a_long_message_keeps_the_diary_and_the_order_is_applied_once(self):
+        replies = self.say(self.ORDER + " " + self.BIG)
+        self.assertEqual(len(replies), 2)
+        self.assertIn("• durée du podcast en semaine : environ 3 minutes", replies[0])
+        self.assertIn("✅ Noté", replies[1])
+        self.assertNotIn("🔧", replies[1])                                               # pas de doublon dans l'accusé
+        self.assertEqual(len(self.mem.entries()), 1)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+
+    def test_a_wrong_everyday_length_from_the_ai_never_wipes_the_days_the_sentence_gave(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 5}])                         # l'IA a oublié les jours
+        replies = self.say(self.ORDER + " " + self.BIG)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        self.assertTrue(all("durée du podcast : environ 5" not in r for r in replies), replies)
+
+    def test_the_ai_completes_a_day_the_sentence_did_not_say(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 5, "jours": "weekend"}])
+        replies = self.say("Je voudrais un podcast de 3 minutes en semaine. " + self.BIG)
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        self.assertIn("• 🔧 durée du podcast le week-end : environ 5 minutes", replies[-1])
+        self.assertNotIn("durée du podcast en semaine", replies[-1])                      # déjà dit par la phrase, pas répété
+
+    def test_a_voice_chosen_by_the_ai_is_kept_next_to_the_lengths_read_by_rules(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 9}, {"cle": "voix", "valeur": "femme"}])
+        replies = self.say(self.ORDER + " " + self.BIG)
+        self.assertEqual(reglages.podcast_for(self.settings(), MONDAY)["voix"], "fr-FR-DeniseNeural")
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (3, 5))
+        self.assertIn("voix : femme", replies[-1])
+
+    def test_wake_time_and_length_in_one_message(self):
+        replies = self.say("Mets le réveil à 7h30 en semaine et le podcast à 3 minutes le week-end.")
+        self.assertIn("⏰ Réveil en semaine : 7 h 30.", replies[0])
+        self.assertIn("• durée du podcast le week-end : environ 3 minutes", replies[1])
+        self.assertEqual(self.mem.entries(), [])
+        self.assertEqual(reglages.week_summary(self.settings()["reveil"]["jours"]), "lun–ven 7 h 30 · sam–dim pas de réveil")
+        self.assertEqual((self.minutes(MONDAY), self.minutes(SATURDAY)), (None, 3))
+
+    def test_statements_and_other_numbers_are_not_orders(self):
+        for text in ("Le podcast de ce matin durait 3 minutes en semaine, c'est trop long pour moi et je ne l'écoute jamais en entier.",
+                     "Je suis allé courir 30 minutes le week-end avec Karim, je voudrais refaire ça la semaine prochaine sans faute."):
+            with self.subTest(text):
+                replies = self.say(text)
+                self.assertEqual(len(replies), 1)
+                self.assertIn("✅ Noté", replies[0])
+        self.assertEqual(self.settings()["podcast"], {"minutes": None, "voix": None, "vitesse": None})
+
+    def test_forwarded_messages_never_give_orders(self):
+        self.forward(self.ORDER)
+        self.run_once()
+        self.assertEqual(self.settings()["podcast"], {"minutes": None, "voix": None, "vitesse": None})
+
+    def test_a_date_or_an_exception_is_left_to_the_ai_and_refused_out_loud(self):
+        self.extraction(reglages=[{"cle": "duree", "valeur": 5, "jours": "demain"}])
+        replies = self.say("Demain je voudrais un podcast de 5 minutes pour mon trajet en train, je pars très tôt.")
+        self.assertIn("⚠️ réglage non appliqué", replies[-1])
+        self.assertEqual(self.settings()["podcast"], {"minutes": None, "voix": None, "vitesse": None})
 
 
 # =========================================================================== images : l'emploi du temps

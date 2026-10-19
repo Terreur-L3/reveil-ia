@@ -10,7 +10,8 @@ Fichier : memoire/emploi_du_temps.yaml
       '2026-10-12': [...]
 
 Un jour absent veut dire « je ne sais pas » (le podcast n'en dit rien) ; un jour vide veut dire « pas de cours ».
-Le texte dit dans le podcast est fabriqué ICI, avec des modèles de phrases : il ne part jamais vers une IA.
+Le texte dit dans le podcast est fabriqué ICI, avec des modèles de phrases, sans IA. (Si tu as une consigne sur la façon de
+dire tes cours, perso_style.py le fait reformuler par Groq seul — jamais Gemini — puis contrôler : voir ce module.)
 """
 from __future__ import annotations
 

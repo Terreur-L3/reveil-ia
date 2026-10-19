@@ -1,7 +1,10 @@
-"""Infos perso simples (anniversaires, rappels, cours du jour) : dites par le programme, jamais envoyées à une IA.
+"""Infos perso simples (anniversaires, rappels, cours du jour) : phrases fabriquées par le programme, sans IA.
 
 Les phrases sont fabriquées ici, avec des modèles de texte, puis insérées dans le podcast.
-Aucun nom, aucune date et aucun cours de ces fichiers ne part vers Gemini ou Groq.
+Aucun nom, aucune date et aucun cours de ces fichiers ne part vers un modèle de rédaction ou de tri de Gemini (seule la voix
+Gemini TTS entend le podcast terminé : voir le README). Vers Groq, seulement si tu as donné une consigne sur la façon de les
+dire (« cite mes cours sans la salle ») : voir perso_style.py, qui reformule puis CONTRÔLE le résultat et garde le texte d'ici
+en cas de doute.
 """
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ import hashlib
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -25,6 +28,15 @@ class Event:
     delta: int   # nombre de jours avant l'événement (0 = aujourd'hui)
     kind: str    # "anniversaire" ou "rappel"
     text: str
+    anchor: str = ""   # ce qu'une reformulation ne doit jamais perdre : le nom de la personne, le texte du rappel
+
+
+@dataclass
+class Segment:
+    """Le texte perso du jour, et les mots-clés qui le prouvent (voir perso_style : une reformulation doit les garder)."""
+    text: str = ""
+    n: int = 0
+    anchors: list[tuple[str, str]] = field(default_factory=list)   # (« nom » | « rappel » | « cours », texte)
 
 
 def _load_list(path: Path) -> list[dict]:
@@ -136,7 +148,7 @@ def birthday_events(entries: list[dict], today: date, days_before: set[int]) -> 
             age = None
         if age is not None and not 1 <= age <= 120:
             age = None
-        events.append(Event(delta, "anniversaire", _birthday_text(nom, delta, age, today.isoformat())))
+        events.append(Event(delta, "anniversaire", _birthday_text(nom, delta, age, today.isoformat()), nom))
     return events
 
 
@@ -157,7 +169,7 @@ def reminder_events(entries: list[dict], today: date, days_before: set[int]) -> 
             line = f"Demain : {texte}."
         else:
             line = f"Dans {delta} jours : {texte}."
-        events.append(Event(delta, "rappel", line))
+        events.append(Event(delta, "rappel", line, texte))
     return events
 
 
@@ -179,8 +191,8 @@ def merge_reminders(manual: list[dict], auto: list[dict]) -> list[dict]:
     return manual + [e for e in auto if (_key(e.get("texte")), str(e.get("date"))) not in known]
 
 
-def build_segment(racine: Path, cfg: dict | None, today: date) -> tuple[str, int]:
-    """Retourne (texte à insérer dans le podcast, nombre de phrases). Vide s'il n'y a rien à dire."""
+def build_segment_detail(racine: Path, cfg: dict | None, today: date) -> Segment:
+    """Le texte perso du jour (vide s'il n'y a rien à dire), avec ses mots-clés. Aucune IA : voir perso_style pour la reformulation."""
     cfg = cfg or {}
     mem = Path(racine) / "memoire"
     birthdays = merge_birthdays(_load_list(mem / "anniversaires.yaml"), _load_list(mem / "anniversaires_auto.yaml"))
@@ -192,12 +204,22 @@ def build_segment(racine: Path, cfg: dict | None, today: date) -> tuple[str, int
     max_lines = int(cfg.get("max_lignes", 4))
     events = events[:max_lines]
     sentences = [ev.text for ev in events]
+    anchors = [("nom" if ev.kind == "anniversaire" else "rappel", ev.anchor) for ev in events if ev.anchor]
     if max_lines > 0 and cfg.get("cours", True):  # « max_lignes: 0 » coupe tout le segment perso
         try:
-            courses = edt.spoken(edt.load(mem / "emploi_du_temps.yaml"), today)
+            data = edt.load(mem / "emploi_du_temps.yaml")
+            courses = edt.spoken(data, today)
+            titles = [c["cours"] for c in (edt.courses_for(data, today) or []) if c.get("cours")]
         except Exception as exc:  # un fichier abîmé ne doit jamais empêcher le podcast
             log.warning("Emploi du temps ignoré : %s", exc)
-            courses = ""
+            courses, titles = "", []
         if courses:
             sentences.append(courses)
-    return " ".join(sentences), len(sentences)
+            anchors += [("cours", t) for t in titles if _key(t) in _key(courses)]
+    return Segment(" ".join(sentences), len(sentences), anchors)
+
+
+def build_segment(racine: Path, cfg: dict | None, today: date) -> tuple[str, int]:
+    """Retourne (texte à insérer dans le podcast, nombre de phrases). Vide s'il n'y a rien à dire."""
+    seg = build_segment_detail(racine, cfg, today)
+    return seg.text, seg.n

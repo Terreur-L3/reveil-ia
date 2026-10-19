@@ -28,10 +28,10 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import audio, edt, extract, github, inspi, llm, reglages, stt, telegram, triage, tts, vision
+from . import audio, edt, extract, github, inspi, llm, perso, perso_style, reglages, stt, telegram, triage, tts, vision
 from .fr import MOIS, duree_fr, jour_court_fr
 from .main import load_env
-from .memoire import Memoire, norm
+from .memoire import Memoire, mentions_perso, norm
 from .pacer import Pacer
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,8 +44,8 @@ WELCOME = (
     "🖼️ Images : envoie une photo ou une capture de ton emploi du temps (idéalement « en tant que fichier » pour "
     "qu'elle reste nette) : je lis tes cours et je te les rappelle chaque matin.\n"
     "⏰ /reveil 6h30 : l'heure à laquelle ton podcast se lance. Tu peux aussi le dire : « mets mon réveil à 6h30 ».\n"
-    "📌 Dis-moi comment tu veux que je te parle (« plus décontracté », « phrases courtes »…) : je le retiens. "
-    "/consignes pour voir la liste.\n"
+    "📌 Dis-moi comment tu veux que je te parle (« plus décontracté », « phrases courtes », « cite mes cours sans la salle »…), "
+    "éventuellement selon les jours (« le week-end… ») : je le retiens. /consignes pour voir la liste.\n"
     "💡 « 💡 Inspi » : je te pose une question quand tu manques d'inspiration.\n"
     "🎧 /podcast : je prépare le podcast tout de suite. 🧠 /memoire · ⚙️ /reglages\n\n"
     "Seul le texte est gardé, jamais l'audio ni les images. Je lis tes messages en général dans la demi-heure "
@@ -154,8 +154,8 @@ def handle_text_entry(ctx: Ctx, m: telegram.Incoming) -> None:
     eid = _entry_id(m)
     if ctx.mem.has_entry(eid):
         return
-    if not m.forwarded and apply_wake_orders(ctx, m.text, _stamp(ctx, m.ts)):
-        return  # ce message n'était qu'un ordre de réveil
+    if not m.forwarded and apply_orders(ctx, m.text, _stamp(ctx, m.ts)):
+        return  # ce message n'était qu'un ordre (réveil, durée du podcast)
     qid = _link_question(ctx, m.reply_to, eid)
     entry = _new_entry(ctx, eid, m.ts, "texte", m.text, None, qid, m.forwarded)
     ctx.mem.add_entry(entry, (ctx.mem.question(qid) or {}).get("texte"))
@@ -214,6 +214,30 @@ def apply_wake_orders(ctx: Ctx, text: str, stamp: datetime) -> bool:
     return len(text.split()) <= SHORT_ORDER_WORDS
 
 
+ONLY_ORDER_LEFTOVER_WORDS = 6   # « merci », « salut, … » autour d'un ordre ne font pas de lui une entrée de journal
+
+
+def apply_spoken_durations(ctx: Ctx, text: str) -> bool:
+    """« Je voudrais un podcast de 3 minutes en semaine et de 5 minutes le week-end » : lu à règles fixes, appliqué tout de suite,
+    et on répond toujours ce qui a été compris. Retourne True si le message n'était QUE cet ordre (il n'entre pas dans le journal)."""
+    orders, leftover = reglages.scan_spoken_durations(text)
+    if not orders:
+        return False
+    lines = [reglages.set_podcast(ctx.settings, "minutes", o.value, o.days, o.rest) for o in orders]
+    ctx.settings_changed = True
+    ctx.say("🔧 Réglé :\n" + "\n".join(f"• {line}" for line in lines) + "\n"
+            + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))) + "\nÇa s'applique au prochain podcast.")
+    return leftover <= ONLY_ORDER_LEFTOVER_WORDS and len(text.split()) <= 4 * SHORT_ORDER_WORDS
+
+
+def apply_orders(ctx: Ctx, text: str, stamp: datetime) -> bool:
+    """Les ordres du message (heure du réveil, durée du podcast par jour). Retourne True si le message n'était QUE cela :
+    il n'entre alors pas dans le journal. Un message plus long est gardé, et ses ordres sont déjà pris en compte."""
+    woke = apply_wake_orders(ctx, text, stamp)             # True : il y avait un ordre de réveil, et rien d'autre
+    only_durations = apply_spoken_durations(ctx, text)     # True : il y avait un ordre de durée, et rien d'autre
+    return woke or only_durations
+
+
 # --------------------------------------------------------------------------- extraction et accusé
 def _known_topics(ctx: Ctx) -> list[str]:
     data = ctx.mem.interests()
@@ -248,6 +272,8 @@ def try_extract(ctx: Ctx, entry: dict) -> dict | None:
         log.warning("Extraction impossible pour l'instant : %s", str(exc).splitlines()[0])
         ctx.mem.update_entry(entry["id"], essais_extraction=int(entry.get("essais_extraction", 0)) + 1)
         return None
+    if own_words:   # une durée par jour lue à règles fixes dans cette même entrée a déjà été appliquée : elle l'emporte sur l'IA
+        ex.reglages = extract.drop_duree_conflicts(ex.reglages, reglages.parse_spoken_durations(entry["texte"]))
     applied = ctx.mem.apply_extraction(entry, ex, ctx.now.date(), settings=ctx.settings)
     if applied.get("reglages"):
         ctx.settings_changed = True      # écrits avec le reste en fin de passage (voir run)
@@ -267,11 +293,14 @@ def _details(applied: dict) -> list[str]:
     if applied.get("promus"):
         lines.append("• ⭐ centres d'intérêt retenus pour tes actus : " + ", ".join(applied["promus"]))
     for c in applied.get("consignes", []):
-        lines.append(f"• 📌 consigne retenue : « {c['texte']} »")
+        where = [_days_label(c["jours"])] if c.get("jours") else []
+        if c.get("portee") == "perso" or (c.get("portee") in ("podcast", "tout") and mentions_perso(c["texte"])):
+            where.append("pour tes infos perso")
+        lines.append(f"• 📌 consigne retenue : « {c['texte']} »" + (f" ({', '.join(where)})" if where else ""))
     if applied.get("consignes"):
         lines.append("  (pour la retirer : /consignes puis /oublier N)")
     for r in applied.get("reglages", []):
-        lines.append(f"• 🔧 {r}")
+        lines.append(r if r.startswith("⚠️") else f"• 🔧 {r}")
     return lines[:10]
 
 
@@ -445,8 +474,8 @@ def process_item(ctx: Ctx, item: dict) -> str:
     if len(transcript.split()) < 2:
         ctx.say("🎙️ Je n'ai rien entendu dans ce vocal (silence ?).")
         return "fini"
-    if not item.get("transfere") and apply_wake_orders(ctx, transcript, _stamp(ctx, item.get("recu", 0))):
-        return "fini"  # ce vocal n'était qu'un ordre de réveil
+    if not item.get("transfere") and apply_orders(ctx, transcript, _stamp(ctx, item.get("recu", 0))):
+        return "fini"  # ce vocal n'était qu'un ordre (réveil, durée du podcast)
     duration = item.get("duree") or int(sum(c.duration for c in chunks))
     entry = _new_entry(ctx, item["id"], item.get("recu", 0), "vocal", transcript, duration, item.get("repond_a"),
                        bool(item.get("transfere")))
@@ -498,7 +527,7 @@ def maybe_question(ctx: Ctx) -> None:
     pending = ctx.state.get("question_en_attente") or {}
     q = inspi.make_question(ctx.mem, ctx.cfg, ctx.keys, ctx.now, pacer=ctx.pacer, prenom=ctx.prenom,
                            pending=pending.get("texte", ""),
-                           consignes=ctx.mem.consignes_for("questions", allow_private=True))
+                           consignes=ctx.mem.consignes_for("questions", allow_private=True, day=ctx.now.date()))
     qid = ctx.mem.next_question_id(ctx.now)
     record = {
         "id": qid, "date": today, "heure": ctx.now.strftime("%H:%M"), "texte": q["texte"], "categorie": q["categorie"],
@@ -509,7 +538,8 @@ def maybe_question(ctx: Ctx) -> None:
         try:
             voice = ctx.tmp / f"{qid}.mp3"
             # La question vient de ta mémoire : elle reste sur Edge (private=True), elle n'est jamais envoyée à Gemini.
-            tts.synthesize(q["texte"], reglages.apply_to_cfg(ctx.cfg, ctx.settings).get("voix", {}), voice, private=True)
+            tts.synthesize(q["texte"], reglages.apply_to_cfg(ctx.cfg, ctx.settings, ctx.now.date()).get("voix", {}), voice,
+                           private=True)
         except Exception as exc:  # pas de voix ? la question reste lisible
             log.warning("Voix de la question impossible : %s", str(exc).splitlines()[0])
             voice = None
@@ -565,7 +595,8 @@ def settings_text(ctx: Ctx) -> str:
         f"📌 {consignes} consigne{'s' if consignes > 1 else ''} (/consignes)",
         f"📅 emploi du temps : {courses} cours (/cours)" if courses else "📅 emploi du temps : pas encore (envoie une image, ou /cours)",
         "",
-        "Pour changer : /reveil 6h30 · /duree 3 · /voix essai (écouter les voix) · /vitesse lent, normal ou rapide · /consigne … · /cours",
+        "Pour changer : /reveil 6h30 · /duree 3 (ou /duree 3 semaine 5 week-end) · /voix essai (écouter les voix) · "
+        "/vitesse lent, normal ou rapide · /consigne … · /cours · /perso (écouter comment je dis tes cours et rappels)",
     ]
     if not sonnette_recent(ctx):
         lines += ["", SONNETTE_NOTE]
@@ -577,20 +608,45 @@ def cmd_reveil(ctx: Ctx, args: str, stamp: datetime) -> None:
     ctx.say(wake_reply(ctx, orders, stamp) if orders else HELP_REVEIL)
 
 
-def _set_podcast(ctx: Ctx, key: str, value) -> None:
-    line = reglages.set_podcast(ctx.settings, key, value)
+def _set_podcast(ctx: Ctx, key: str, value, days: tuple[int, ...] | None = None) -> None:
+    line = reglages.set_podcast(ctx.settings, key, value, days)
     ctx.settings_changed = True
     ctx.say(f"🔧 Réglé : {line}.\n" + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300)))
             + "\nÇa s'applique au prochain podcast.")
 
 
-def cmd_duree(ctx: Ctx, args: str) -> None:
-    minutes = reglages.parse_duree(args) if args else None
-    if minutes is None:
-        ctx.say(reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300)))
-                + "\nPour changer : /duree 3 (de 1 à 8 minutes ; 1,5 est accepté).")
+def _set_scoped(ctx: Ctx, key: str, parsed: reglages.ScopedOrders) -> None:
+    """Applique ce que /duree, /voix ou /vitesse ont compris : une valeur pour tous les jours, ou une par type de jour."""
+    if len(parsed.orders) == 1 and not parsed.orders[0].rest:
+        _set_podcast(ctx, key, parsed.orders[0].value, parsed.orders[0].days)
         return
-    _set_podcast(ctx, "minutes", minutes)
+    lines = [reglages.set_podcast(ctx.settings, key, o.value, o.days, o.rest) for o in parsed.orders]
+    ctx.settings_changed = True
+    ctx.say("🔧 Réglé :\n" + "\n".join(f"• {line}" for line in lines) + "\n"
+            + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))) + "\nÇa s'applique au prochain podcast.")
+
+
+def _scope_problem(parsed: reglages.ScopedOrders) -> str | None:
+    """Le message à envoyer quand les jours n'ont pas été compris (None = tout va bien)."""
+    if parsed.problem == "periode":
+        return reglages.SCOPE_PERIOD_TEXT
+    if parsed.problem == "flou":
+        return reglages.SCOPE_UNCLEAR_TEXT
+    return None
+
+
+def cmd_duree(ctx: Ctx, args: str) -> None:
+    parsed = reglages.parse_scoped(args, reglages.minutes_spans) if args else None
+    problem = _scope_problem(parsed) if parsed else None
+    if problem:
+        ctx.say(problem)
+        return
+    if not parsed or not parsed.orders:
+        ctx.say(reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300)))
+                + "\nPour changer : /duree 3 (de 1 à 8 minutes ; 1,5 est accepté).\n"
+                  "Selon les jours : /duree 3 semaine 5 week-end · /duree 4 lundi · /duree 5 week-end, 3 sinon.")
+        return
+    _set_scoped(ctx, "minutes", parsed)
 
 
 VOICE_HELP = (
@@ -636,32 +692,52 @@ def cmd_voix(ctx: Ctx, args: str) -> None:
     if args and norm(args).split()[:1] == ["essai"]:
         _voix_essai(ctx, args)
         return
-    voice = reglages.parse_voix(args) if args else None
-    if voice is None:
+    parsed = reglages.parse_scoped(args, reglages.voice_spans) if args else None
+    problem = _scope_problem(parsed) if parsed else None
+    if problem:
+        ctx.say(problem)
+        return
+    if not parsed or not parsed.orders:
         ctx.say(VOICE_HELP + "\n" + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
         return
-    _set_podcast(ctx, "voix", voice)
+    _set_scoped(ctx, "voix", parsed)
 
 
 def cmd_vitesse(ctx: Ctx, args: str) -> None:
-    speed = reglages.parse_vitesse(args) if args else None
-    if speed is None:
-        ctx.say("🐢🐇 Choisis : /vitesse lent · /vitesse normal · /vitesse rapide (ou un pourcentage, ex. /vitesse +15%)\n"
+    parsed = reglages.parse_scoped(args, reglages.speed_spans) if args else None
+    problem = _scope_problem(parsed) if parsed else None
+    if problem:
+        ctx.say(problem)
+        return
+    if not parsed or not parsed.orders:
+        ctx.say("🐢🐇 Choisis : /vitesse lent · /vitesse normal · /vitesse rapide (ou un pourcentage, ex. /vitesse +15%) "
+                "· selon les jours : /vitesse lent semaine, rapide week-end\n"
                 + reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))))
         return
-    _set_podcast(ctx, "vitesse", speed)
+    _set_scoped(ctx, "vitesse", parsed)
 
 
-_SCOPE_LABEL = {"podcast": "le podcast", "questions": "mes questions", "tout": "tout"}
+_SCOPE_LABEL = {"podcast": "le podcast", "questions": "mes questions", "perso": "mes infos perso (cours, anniversaires, rappels)",
+                "tout": "tout"}
+
+
+def _days_label(days: list[str]) -> str:
+    return reglages.days_phrase(tuple(reglages.DAYS.index(d) for d in days if d in reglages.DAYS))
 
 
 def _guess_scope(text: str) -> str:
     low = norm(text)
     if re.search(r"\b(question|questions|inspi)\b", low):
         return "questions"
+    if mentions_perso(text):                    # « cite mes cours sans la salle » : la façon de dire tes infos perso
+        return "perso"
     if re.search(r"\b(podcast|actu|actus|matin|nouvelles|journal)\b", low):
         return "podcast"
     return "tout"
+
+
+PERSO_PRIVACY_NOTE = ("ℹ️ Pour l'appliquer, je fais reformuler tes phrases perso (cours, anniversaires, rappels) par Groq, jamais par Gemini, "
+                      "et je vérifie qu'aucune heure ni aucun nom ne change. /perso pour voir le résultat.")
 
 
 def cmd_consignes(ctx: Ctx) -> None:
@@ -673,8 +749,13 @@ def cmd_consignes(ctx: Ctx) -> None:
     lines = [f"📌 Tes consignes ({len(rules)})", ""]
     for n, c in enumerate(rules, 1):
         mark = " 🔒" if c.get("prive") else ""
-        lines.append(f"{n}. {c['texte']} — {_SCOPE_LABEL.get(c.get('portee', 'tout'), 'tout')}{mark}")
-    lines += ["", "Pour en retirer une : /oublier 2 · pour en ajouter : /consigne … ou dis-le-moi simplement.",
+        scope = _SCOPE_LABEL.get(c.get("portee", "tout"), "tout")
+        if c.get("portee", "tout") in ("podcast", "tout") and mentions_perso(c["texte"]):
+            scope += " + mes infos perso"
+        days = f" · {_days_label(c['jours'])}" if c.get("jours") else ""
+        lines.append(f"{n}. {c['texte']} — {scope}{days}{mark}")
+    lines += ["", "Pour en retirer une : /oublier 2 · pour en ajouter : /consigne … ou dis-le-moi simplement "
+                  "(« le week-end, … » pour la limiter à certains jours).",
               "🔒 = personnelle : elle ne part jamais vers Gemini (seulement Groq)."]
     ctx.say("\n".join(lines))
 
@@ -685,10 +766,48 @@ def cmd_consigne(ctx: Ctx, args: str, stamp: datetime) -> None:
         return
     scope = _guess_scope(args)
     private = extract.is_sensitive(args)
-    if ctx.mem.add_consigne(args, scope, stamp.date().isoformat(), "commande", private):
-        ctx.say(f"📌 Consigne retenue : « {args[:160]} » (concerne : {_SCOPE_LABEL[scope]}).\n/consignes pour la liste, /oublier N pour la retirer.")
+    when = reglages.parse_day_scope(args, topic_guard=True, strict=False)
+    if when.problem:
+        ctx.say("🤔 Une consigne vaut pour toujours, ou pour certains jours de la semaine (« en semaine », « le week-end », « le lundi »). "
+                "Je ne sais pas encore en faire une pour une date précise ni avec une exception (« sauf le dimanche »).")
+        return
+    days = [reglages.DAYS[d] for d in when.days or ()]
+    if ctx.mem.add_consigne(args, scope, stamp.date().isoformat(), "commande", private, days):
+        where = _SCOPE_LABEL[scope] + (f" · {_days_label(days)}" if days else "")
+        lines = [f"📌 Consigne retenue : « {args[:160]} » (concerne : {where}).",
+                 "/consignes pour la liste, /oublier N pour la retirer."]
+        if scope == "perso" or (scope in ("podcast", "tout") and mentions_perso(args)):
+            lines.append(PERSO_PRIVACY_NOTE)
+        ctx.say("\n".join(lines))
     else:
         ctx.say("📌 Cette consigne existe déjà (ou elle est trop courte). /consignes pour voir la liste.")
+
+
+def cmd_perso(ctx: Ctx, args: str, stamp: datetime) -> None:
+    """Écoute à l'avance (en texte) comment tes cours, anniversaires et rappels seront dits : /perso, /perso demain, /perso lundi…"""
+    today = stamp.date()
+    day = reglages.target_day(args, today) or today
+    label = reglages.day_label(day, today)
+    segment = perso.build_segment_detail(ctx.racine, ctx.cfg.get("perso"), day)
+    if not segment.text:
+        ctx.say(f"🗣️ {label} : rien à dire (pas d'anniversaire, de rappel ni de cours ce jour-là).")
+        return
+    rules = ctx.mem.consignes_for("perso", allow_private=True, day=day) if (ctx.cfg.get("perso") or {}).get("style_ia", True) else []
+    if not rules:
+        note = ("Aucune consigne sur tes infos perso : c'est le texte de base. Pour le changer, dis-moi par exemple "
+                "« cite mes cours sans la salle » ou écris /consigne cite mes cours sans la salle.")
+        result = perso_style.Result(segment.text)
+    else:
+        result = perso_style.restyle(segment.text, rules, cfg=ctx.cfg, keys=ctx.keys, prenom=ctx.prenom,
+                                     anchors=segment.anchors, pacer=ctx.pacer)
+        if result.fallback:
+            what = "ta consigne" if len(rules) == 1 else f"tes {len(rules)} consignes"
+            note = (f"⚠️ Je n'ai pas pu appliquer {what} : {result.status.partition(':')[2].strip()}. "
+                    "Voici le texte de base ; je réessaie à chaque podcast.")
+        else:
+            note = (f"✅ {len(rules)} consigne{'s' if len(rules) > 1 else ''} appliquée{'s' if len(rules) > 1 else ''} "
+                    "(reformulé par Groq, puis contrôlé : aucune heure, aucun nom ni aucun jour n'a changé).")
+    ctx.say(f"🗣️ Voici comment je te dirais tes infos perso {label} :\n\n« {result.text} »\n\n{note}")
 
 
 def cmd_oublier(ctx: Ctx, args: str) -> None:
@@ -798,6 +917,8 @@ def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
         cmd_consigne(ctx, args, stamp)
     elif command == "/oublier":
         cmd_oublier(ctx, args)
+    elif command == "/perso":
+        cmd_perso(ctx, args, stamp)
     elif command == "/cours":
         cmd_cours(ctx, args, stamp)
     elif command == "/podcast":

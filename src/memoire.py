@@ -50,12 +50,31 @@ STATE_DEFAULT = {
 REMINDER_KEEP_DAYS = 30
 MAX_AIME, MAX_CANDIDATS = 40, 60
 MAX_CONSIGNES = 25
+CONSIGNE_SCOPES = ("podcast", "questions", "perso", "tout")
+# Une consigne qui parle de tes cours, anniversaires ou rappels concerne la façon de les dire, même si elle a été rangée
+# sous « podcast » ou « tout » (anciennes consignes, ou /consigne écrite sans le mot « perso »).
+_PERSO_WORDS_RE = re.compile(
+    r"\b(cours|emploi du temps|edt|planning|agenda|horaires?|anniversaires?|anniv|rappels?|rendez vous|rdv|"
+    r"infos? perso\w*|informations? perso\w*|salles?|profs?|professeurs?|enseignants?)\b"
+)
 
 
 def norm(text) -> str:
     """Clé de comparaison : sans accents, majuscules ni ponctuation."""
     flat = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
     return re.sub(r"\W+", " ", flat.lower()).strip()
+
+
+# « au cours de la semaine », « le cours du bitcoin », « un projet en cours » : le mot « cours » n'est pas celui de l'emploi du temps.
+_NOT_A_COURSE_RE = re.compile(
+    r"\b(?:au cours (?:de|du|des|d)|en cours|cours d eau|cours (?:de la |de l |de |du |des )?"
+    r"(?:bourse|change|bitcoin|btc|dollar|euro|petrole|baril|or|cac|gaz|ble|marche|actions|monnaies|matieres))\b"
+)
+
+
+def mentions_perso(text) -> bool:
+    """Le texte parle-t-il de tes cours, anniversaires ou rappels (donc de la façon de les citer) ?"""
+    return bool(_PERSO_WORDS_RE.search(_NOT_A_COURSE_RE.sub(" ", norm(text))))
 
 
 # --------------------------------------------------------------------------- fichiers
@@ -295,15 +314,27 @@ class Memoire:
     def consignes(self) -> list[dict]:
         return [c for c in _read_yaml(self.p_consignes, []) if isinstance(c, dict) and c.get("texte")]
 
-    def add_consigne(self, texte: str, portee: str, day: str, source: str, prive: bool = False) -> bool:
+    @staticmethod
+    def _consigne_days(entry_or_list) -> list[str]:
+        """Les jours (« lun », « sam »…) d'une consigne, dans l'ordre de la semaine ; vide = tous les jours."""
+        raw = entry_or_list.get("jours") if isinstance(entry_or_list, dict) else entry_or_list
+        days = sorted({d for d in (raw if isinstance(raw, (list, tuple)) else []) if d in reglages_mod.DAYS},
+                      key=reglages_mod.DAYS.index)
+        return [] if len(days) == 7 else days
+
+    def add_consigne(self, texte: str, portee: str, day: str, source: str, prive: bool = False,
+                     jours: list[str] | None = None) -> bool:
         texte = re.sub(r"\s+", " ", re.sub(r"\[\[|\]\]|https?://\S+", "", str(texte or ""))).strip()[:160]
         if len(texte) < 6:
             return False
+        days = self._consigne_days(jours)
         entries = self.consignes()
-        if any(norm(c["texte"]) == norm(texte) for c in entries):
+        if any(norm(c["texte"]) == norm(texte) and self._consigne_days(c) == days for c in entries):
             return False
-        entry = {"texte": texte, "portee": portee if portee in ("podcast", "questions", "tout") else "tout",
+        entry = {"texte": texte, "portee": portee if portee in CONSIGNE_SCOPES else "tout",
                  "date": day, "source": source}
+        if days:
+            entry["jours"] = days
         if prive:
             entry["prive"] = True
         entries.append(entry)
@@ -319,8 +350,12 @@ class Memoire:
         _write_yaml(self.p_consignes, entries, _HEADER_CONSIGNES)
         return gone
 
-    def consignes_for(self, scope: str, *, allow_private: bool) -> list[str]:
-        """Les consignes qui concernent « podcast » ou « questions ».
+    def consignes_for(self, scope: str, *, allow_private: bool, day: date | None = None) -> list[str]:
+        """Les consignes qui concernent « podcast », « questions » ou « perso » (la façon de citer tes cours, anniversaires
+        et rappels). Celles de portée « tout » comptent pour podcast et questions.
+
+        `day` : le jour du podcast ; une consigne limitée à certains jours (« le week-end, parle plus décontracté ») ne
+        sort que ces jours-là. Sans `day`, aucun filtre par jour.
 
         `allow_private=False` (rédaction du podcast, qui peut passer par Gemini) : on écarte celles que l'IA ou
         la liste de sujets sensibles a jugées personnelles. Elles restent dans la liste et servent aux questions."""
@@ -328,7 +363,14 @@ class Memoire:
 
         out = []
         for c in self.consignes():
-            if c.get("portee", "tout") not in (scope, "tout"):
+            portee = c.get("portee", "tout")
+            if scope == "perso":
+                if not (portee == "perso" or (portee in ("podcast", "tout") and mentions_perso(c["texte"]))):
+                    continue
+            elif portee not in (scope, "tout"):
+                continue
+            days = self._consigne_days(c)
+            if day is not None and days and reglages_mod.DAYS[day.weekday()] not in days:
                 continue
             if not allow_private and (c.get("prive") or is_sensitive(c["texte"])):
                 continue
@@ -384,17 +426,25 @@ class Memoire:
         report["promus"] = self.merge_interests(ex.aime, ex.evite, entry["date"])
         report["consignes"] = [
             c for c in ex.consignes
-            if self.add_consigne(c["texte"], c.get("portee", "tout"), entry["date"], source, bool(c.get("sensible")))
+            if self.add_consigne(c["texte"], c.get("portee", "tout"), entry["date"], source, bool(c.get("sensible")),
+                                 c.get("jours"))
         ]
         report["reglages"] = []
         if ex.reglages:
             own = settings is None
             current = self.load_reglages() if own else settings
-            for r in ex.reglages:
+            changed = False
+            for r in sorted(ex.reglages, key=lambda r: not r.get("autres")):     # « sinon » d'abord (voir parse_scoped)
                 valid = reglages_mod.validate_setting(r.get("cle"), r.get("valeur"))
-                if valid:
-                    report["reglages"].append(reglages_mod.set_podcast(current, *valid))
-            if report["reglages"] and own:
+                if not valid:
+                    continue
+                if r.get("refus"):
+                    report["reglages"].append("⚠️ " + reglages_mod.SCOPE_REFUSED_SHORT)
+                    continue
+                days = tuple(reglages_mod.DAYS.index(d) for d in r.get("jours") or [] if d in reglages_mod.DAYS) or None
+                report["reglages"].append(reglages_mod.set_podcast(current, *valid, days, bool(r.get("autres"))))
+                changed = True
+            if changed and own:
                 self.save_reglages(current)
         self.update_entry(entry["id"], resume=ex.resume, extrait=True)
         return report
@@ -454,7 +504,8 @@ _HEADER_RAPPELS = (
 )
 _HEADER_CONSIGNES = (
     "Géré par ton journal vocal : tes consignes sur la façon de te parler (/consignes pour les voir, /oublier N pour en retirer).\n"
-    "portee : podcast, questions ou tout. prive : true = jamais envoyée à Gemini (seulement à Groq). Tu peux corriger ce fichier à la main."
+    "portee : podcast, questions, perso (comment citer tes cours, anniversaires, rappels) ou tout. jours : liste (lun, mar…) si la consigne\n"
+    "ne vaut que certains jours. prive : true = jamais envoyée à Gemini (seulement à Groq). Tu peux corriger ce fichier à la main."
 )
 _HEADER_INTERETS = (
     "Géré automatiquement par ton journal vocal.\n"

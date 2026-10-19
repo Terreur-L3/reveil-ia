@@ -242,6 +242,41 @@ class TestShippedWorkflows(unittest.TestCase):
         self.assertIn("inputs.origine", env["JOURNAL_ORIGINE"])
         self.assertNotIn("GEMINI_API_KEY", env)                                         # le journal ne parle jamais à Gemini
 
+    def test_no_workflow_uses_an_action_that_still_runs_on_node_20(self):
+        """GitHub retire Node 20 de ses machines à l'automne 2026 : une action restée sur Node 20 ferait échouer le workflow."""
+        first_node24 = {"checkout": 5, "cache": 5}                                # première version majeure sous Node 24
+        seen = []
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for job in doc["jobs"].values():
+                for step in job["steps"]:
+                    uses = step.get("uses")
+                    if not uses:
+                        continue
+                    name, _, version = uses.partition("@")
+                    self.assertTrue(name.startswith("actions/"), f"{path.name} : action tierce {uses} (à vérifier avant de l'ajouter)")
+                    short = name.split("/", 1)[1]
+                    self.assertIn(short, first_node24, f"{path.name} : {uses} pas vérifiée pour Node 24")
+                    self.assertGreaterEqual(int(version.lstrip("v").split(".")[0]), first_node24[short], f"{path.name} : {uses}")
+                    seen.append(uses)
+        self.assertIn("actions/cache@v5", seen)
+        self.assertIn("actions/checkout@v5", seen)
+
+    def test_the_pip_cache_can_never_stop_the_journal(self):
+        steps = self.load("journal.yml")["jobs"]["journal"]["steps"]
+        cache = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache@"))
+        self.assertIs(cache.get("continue-on-error"), True)
+
+    def test_journal_workflow_caches_pip_before_installing(self):
+        doc = self.load("journal.yml")
+        steps = doc["jobs"]["journal"]["steps"]
+        names = [s.get("name") or s.get("uses") for s in steps]
+        cache = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache@"))
+        self.assertLess(steps.index(cache), names.index("Installer les dépendances"))
+        self.assertEqual(cache["with"]["path"], "~/.cache/pip")
+        self.assertIn("hashFiles('requirements.txt')", cache["with"]["key"])      # une nouvelle dépendance invalide le cache
+        self.assertNotIn("secrets.", str(cache))                                   # le cache ne voit jamais un secret
+
     def test_voice_workflow(self):
         doc = self.load("voix.yml")
         self.assertEqual(sorted(doc["triggers"]), ["workflow_dispatch"])               # jamais planifié : il ne consomme que sur demande

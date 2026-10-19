@@ -206,6 +206,12 @@ def default_extract(prompt: str) -> dict:
     return out
 
 
+def default_perso(prompt: str) -> str:
+    """Le « modèle » qui reformule les infos perso : par défaut, il rend le texte d'origine tel quel."""
+    m = re.search(r'Texte d\'origine :\n"""\n(.*?)\n"""', prompt, re.DOTALL)
+    return m.group(1) if m else prompt
+
+
 class World:
     def __init__(self):
         self.requests: list[Req] = []
@@ -215,6 +221,7 @@ class World:
         self.gemini_fn = self.smart_gemini
         self.groq_fn = self.smart_groq
         self.extract_fn = default_extract
+        self.perso_fn = default_perso                  # reformulation des infos perso (perso_style) : prompt → texte reformulé
         self.question_n = 0
         self.tts_fn = self.smart_tts                   # Gemini TTS : (requête, « interactions » | « legacy », corps) → (statut, réponse)
         # Groq transcription
@@ -531,4 +538,6 @@ class World:
             return json.dumps({"question": question, "categorie": "projet"}, ensure_ascii=False)
         if "mémoire personnelle d'un journal" in system:
             return json.dumps(self.extract_fn(prompt), ensure_ascii=False)
+        if "Tu réécris un court passage" in system:
+            return json.dumps({"texte": self.perso_fn(prompt)}, ensure_ascii=False)
         return "OK"

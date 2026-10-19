@@ -11,7 +11,8 @@ Cloudflare qui déclenche le podcast à l'heure exacte), donc son format est vol
         "ponctuel": {"2026-10-08": "05:45", "2026-10-09": "off"},        # exceptions pour une date précise
         "maj": "2026-10-06T19:40:00+02:00"                                # quand tu as changé l'heure
       },
-      "podcast": {"minutes": null, "voix": null, "vitesse": null},
+      "podcast": {"minutes": null, "voix": null, "vitesse": null,      # réglages « tous les jours »…
+                  "jours": {"sam": {"minutes": 5}, "dim": {"minutes": 5}}},   # …et ceux d'un jour précis (clé absente si aucun)
       "sonnette_vue": "",
       "journal_offset": 0                                               # jusqu'où le journal a lu Telegram (sert à la sonnette)
     }
@@ -65,6 +66,23 @@ SPEEDS = {"tres lent": "-20%", "lent": "-10%", "normal": "+0%", "rapide": "+10%"
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
+def _valid_minutes(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 1 <= value <= 8 else None
+
+
+def _valid_voice(value):
+    if isinstance(value, str) and (re.fullmatch(r"[a-z]{2}-[A-Z]{2}-\w+Neural", value) or _valid_gemini_choice(value)):
+        return value
+    return None
+
+
+def _valid_speed(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[+-]\d{1,2}%", value) else None
+
+
+_PODCAST_CHECKS = {"minutes": _valid_minutes, "voix": _valid_voice, "vitesse": _valid_speed}
+
+
 def _valid_gemini_choice(value: str) -> bool:
     """« gemini » (la voix de config.yaml), « gemini:Sulafat » ou « gemini:voice_… » (voix créée sur mesure)."""
     if value == "gemini":
@@ -101,15 +119,19 @@ def normalize(data) -> dict:
         out["reveil"]["maj"] = str(rev.get("maj") or "")
     pod = data.get("podcast")
     if isinstance(pod, dict):
-        minutes = pod.get("minutes")
-        if isinstance(minutes, (int, float)) and not isinstance(minutes, bool) and 1 <= minutes <= 8:
-            out["podcast"]["minutes"] = minutes
-        voix = pod.get("voix")
-        if isinstance(voix, str) and (re.fullmatch(r"[a-z]{2}-[A-Z]{2}-\w+Neural", voix) or _valid_gemini_choice(voix)):
-            out["podcast"]["voix"] = voix
-        vitesse = pod.get("vitesse")
-        if isinstance(vitesse, str) and re.fullmatch(r"[+-]\d{1,2}%", vitesse):
-            out["podcast"]["vitesse"] = vitesse
+        for key, check in _PODCAST_CHECKS.items():
+            out["podcast"][key] = check(pod.get(key))
+        jours = pod.get("jours")
+        if isinstance(jours, dict):
+            clean: dict[str, dict] = {}
+            for d in DAYS:
+                entry = jours.get(d)
+                if isinstance(entry, dict):
+                    valid = {k: v for k, check in _PODCAST_CHECKS.items() if (v := check(entry.get(k))) is not None}
+                    if valid:
+                        clean[d] = valid
+            if clean:   # la clé n'existe que s'il y a quelque chose : le format reste celui d'avant pour qui n'en a pas besoin
+                out["podcast"]["jours"] = clean
     out["sonnette_vue"] = str(data.get("sonnette_vue") or "")
     offset = data.get("journal_offset")
     if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0:
@@ -451,6 +473,12 @@ def _scope(folded: str, today: date) -> tuple[tuple[int, ...] | None, date | Non
     return None, None
 
 
+def target_day(text: str, today: date) -> date | None:
+    """« demain », « après-demain », « lundi », « le 12 octobre »… → la date visée (None si rien de clair)."""
+    folded = _fold(text)
+    return _scope(folded, today)[1] if folded else None
+
+
 def _ambiguous_scope(folded: str) -> bool:
     """Un jour précis (« demain », « le 12 octobre ») ET un rythme (« en semaine », « le week-end »…) dans la même phrase :
     on ne sait pas lequel est visé (« à demain, pas de réveil le week-end »)."""
@@ -620,7 +648,8 @@ def days_phrase(days: tuple[int, ...] | None) -> str:
         return "en semaine"
     if tuple(days) == (5, 6):
         return "le week-end"
-    return "le " + " et le ".join(JOURS[d] for d in days)
+    names = [f"le {JOURS[d]}" for d in days]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " et " + names[-1]
 
 
 def apply_request(settings: dict, req: WakeRequest, when: datetime, stamp: datetime | None = None) -> str:
@@ -733,28 +762,112 @@ def voice_label(value: str) -> str:
     return next((k for k, v in VOICES.items() if v == value and k in ("homme", "femme")), value)
 
 
-def set_podcast(settings: dict, key: str, value) -> str:
-    settings["podcast"][key] = value
+def _tidy_podcast(p: dict) -> None:
+    """Garde le dictionnaire des jours aussi petit que possible : rien qui répète le réglage « tous les jours »,
+    et si les sept jours ont la même valeur, c'est simplement le réglage « tous les jours »."""
+    jours = p.get("jours")
+    if not jours:
+        p.pop("jours", None)
+        return
+    for key in _PODCAST_CHECKS:
+        values = [jours.get(d, {}).get(key) for d in DAYS]
+        if all(v is not None for v in values) and len(set(values)) == 1:
+            p[key] = values[0]
+            for d in DAYS:
+                jours[d].pop(key, None)
+    for d in list(jours):
+        for key in list(jours[d]):
+            if jours[d][key] == p.get(key):
+                del jours[d][key]
+        if not jours[d]:
+            del jours[d]
+    if not jours:
+        p.pop("jours", None)
+
+
+def set_podcast(settings: dict, key: str, value, days: tuple[int, ...] | None = None, rest: bool = False) -> str:
+    """Change un réglage du podcast et retourne la phrase qui le dit.
+
+    `days=None` : tous les jours (efface au passage les réglages propres à un jour pour cette clé) ;
+    `days=(5, 6)` : seulement ces jours-là ; `rest=True` : le réglage de base, SANS toucher aux jours déjà réglés
+    (« 5 minutes le week-end, 3 sinon »)."""
+    p = settings["podcast"]
+    if days is not None and len(set(days)) >= 7:
+        days = None
+    where = ""
+    if days is None:
+        p[key] = value
+        if rest:
+            where = " les autres jours"
+        elif p.get("jours"):
+            for entry in p["jours"].values():
+                entry.pop(key, None)
+    else:
+        for d in days:
+            p.setdefault("jours", {}).setdefault(DAYS[d], {})[key] = value
+        where = " " + days_phrase(days)
+    _tidy_podcast(p)
     if key == "minutes":
         shown = f"{value:g}".replace(".", ",")
-        return f"durée du podcast : environ {shown} minute{'s' if value > 1 else ''}"
+        return f"durée du podcast{where} : environ {shown} minute{'s' if value > 1 else ''}"
     if key == "voix":
-        return f"voix : {voice_label(value)}"
-    return f"vitesse de la voix : {value}"
+        return f"voix{where} : {voice_label(value)}"
+    return f"vitesse de la voix{where} : {value}"
+
+
+def podcast_for(settings: dict, day: date | None) -> dict:
+    """Durée, voix et vitesse qui valent CE jour-là : le réglage « tous les jours » complété par celui du jour de la semaine."""
+    p = settings["podcast"]
+    out = {key: p.get(key) for key in _PODCAST_CHECKS}
+    if day is not None:
+        out.update((p.get("jours") or {}).get(DAYS[day.weekday()], {}))
+    return out
+
+
+def _runs_label(a: int, b: int) -> str:
+    if (a, b) == (0, 4):
+        return "en semaine"
+    if (a, b) == (5, 6):
+        return "le week-end"
+    if a == b:
+        return f"le {JOURS[a]}"
+    return f"du {JOURS[a]} au {JOURS[b]}"
+
+
+def _by_days(values: list[str], render) -> str:
+    """Sept valeurs (lundi → dimanche) → « X » si elles sont toutes pareilles, sinon « X en semaine, Y le week-end »."""
+    if len(set(values)) == 1:
+        return render(values[0], None)
+    parts, start = [], 0
+    for i in range(1, 8):
+        if i == 7 or values[i] != values[start]:
+            parts.append(render(values[start], _runs_label(start, i - 1)))
+            start = i
+    return ", ".join(parts)
 
 
 def podcast_summary(settings: dict, default_words: int = 300) -> str:
     p = settings["podcast"]
-    minutes = p["minutes"] if p["minutes"] else default_words / 150
-    voice = voice_label(p["voix"]) if p["voix"] else "par défaut"
-    return (f"🎙️ Podcast : environ {minutes:g} min · voix {voice} · vitesse {p['vitesse'] or 'normale'}"
-            .replace(".", ","))
+    base_minutes = p["minutes"] if p["minutes"] else default_words / 150
+    if not p.get("jours"):
+        voice = voice_label(p["voix"]) if p["voix"] else "par défaut"
+        return (f"🎙️ Podcast : environ {base_minutes:g} min · voix {voice} · vitesse {p['vitesse'] or 'normale'}"
+                .replace(".", ","))
+    week = [podcast_for(settings, date(2026, 10, 5 + i)) for i in range(7)]      # un lundi, puis la semaine
+    minutes = _by_days([f"{(w['minutes'] or base_minutes):g}" for w in week],
+                       lambda v, label: f"{v} min" + (f" {label}" if label else ""))
+    voices = _by_days([voice_label(w["voix"]) if w["voix"] else "par défaut" for w in week],
+                      lambda v, label: v + (f" {label}" if label else ""))
+    speeds = _by_days([w["vitesse"] or "normale" for w in week],
+                      lambda v, label: v + (f" {label}" if label else ""))
+    return f"🎙️ Podcast : environ {minutes} · voix {voices} · vitesse {speeds}".replace(".", ",")
 
 
-def apply_to_cfg(cfg: dict, settings: dict) -> dict:
-    """Copie de la config où tes réglages remplacent ceux de config.yaml."""
+def apply_to_cfg(cfg: dict, settings: dict, day: date | None = None) -> dict:
+    """Copie de la config où tes réglages remplacent ceux de config.yaml. `day` : le jour du podcast, pour que les
+    réglages « en semaine » / « le week-end » / « le lundi »… s'appliquent (sans lui, seuls les réglages de tous les jours)."""
     out = copy.deepcopy(cfg)
-    p = settings["podcast"]
+    p = podcast_for(settings, day)
     if p["minutes"]:
         out["mots_cibles"] = int(p["minutes"] * 150)
     voix = out.setdefault("voix", {})
@@ -771,3 +884,334 @@ def apply_to_cfg(cfg: dict, settings: dict) -> dict:
     if p["vitesse"]:
         voix["vitesse"] = p["vitesse"]
     return out
+
+
+# --------------------------------------------------------------------------- « en semaine », « le week-end », « le lundi »…
+@dataclass
+class DayScope:
+    """À quels jours s'applique un réglage du podcast ou une consigne."""
+    days: tuple[int, ...] | None = None    # None = tous les jours (ou rien n'est dit)
+    rest: bool = False                     # « sinon », « les autres jours » : le réglage de base, sans toucher aux jours déjà réglés
+    problem: str | None = None             # "periode" : une date, « demain », une période… (pas géré pour le podcast)
+
+
+_REST_RE = re.compile(
+    r"\b(?:sinon|les autres jours|tous les autres jours|le reste du temps|autrement|par defaut|les jours restants)\b"
+)
+# Une date, « cette semaine », « lundi prochain »… : un jour précis, pas un rythme (jamais compris comme « chaque lundi »).
+_ONE_OFF_CALENDAR_RE = re.compile(
+    r"\b(?:cette semaine|semaines? (?:prochaine|suivante|derniere)|(?:week ?end|semaine|" + _WEEKDAY_ALT
+    + r") (?:dernier|derniere|passe|passee|prochain|prochaine)|(?:ce|cet) (?:" + _WEEKDAY_ALT + r"))\b"
+)
+# « demain », « ce matin »… : un jour précis aussi, mais dans une consigne en texte libre, « les cours de demain » reste une façon de dire.
+_ONE_OFF_RE = re.compile(r"\b(?:apres demain|demain|aujourd hui|ce matin|ce soir|cette nuit)\b")
+_RANGE_RE = re.compile(r"\b(?:du )?(" + _WEEKDAY_ALT + r") au (" + _WEEKDAY_ALT + r")\b")
+_TOPIC_RE = re.compile(r"\b(?:du|des|de|sur|d)\s+(?:le |la |les |l )?(?:week ?ends?|semaine|" + _WEEKDAY_ALT + r")s?\b")
+# « sauf le dimanche », « pas le week-end » : le contraire de ce que le mot jour ferait comprendre. On ne devine pas.
+_NEGATED_DAY_RE = re.compile(
+    r"\b(?:pas|sans|hors|sauf|excepte|a part)\s+(?:le |la |les |en |l |du |des )?(?:week ?ends?|semaine|" + _WEEKDAY_ALT + r")s?\b"
+)
+_NOT_A_RHYTHM_RE = re.compile(r"\b(?:chaque|toutes les|par|une) semaines?\b")
+
+
+def _expand_range(m: re.Match) -> str:
+    a, b = _WEEKDAY_WORDS[m.group(1)], _WEEKDAY_WORDS[m.group(2)]
+    span = range(a, b + 1) if a <= b else [*range(a, 7), *range(0, b + 1)]
+    return " ".join(JOURS[d] for d in span)
+
+
+def parse_day_scope(text, *, topic_guard: bool = False, strict: bool = True) -> DayScope:
+    """Les jours dont parle une phrase : « en semaine », « le week-end », « le lundi et le mercredi », « du lundi au jeudi »,
+    « tous les jours », « sinon »… Une date, « demain » ou une période ne sont pas gérés (problem="periode").
+
+    `topic_guard=True` (consignes, texte libre) : « les films du week-end » parle d'un sujet, pas d'une condition.
+    `strict=False` (texte libre) : seules les vraies dates et périodes refusent ; « demain », « pendant », « sauf »… peuvent
+    faire partie de la consigne elle-même."""
+    folded = _FROM_NOW_RE.sub(" ", _fold(text))
+    folded = re.sub(r"\bpendant (?=(?:le|les|la) (?:week ?ends?|semaine)\b)", "", folded)
+    folded = _RANGE_RE.sub(_expand_range, folded)
+    if topic_guard:
+        folded = _TOPIC_RE.sub(" ", folded)
+    calendar = _DATE_RE.search(folded) or _THIS_WEEKEND_RE.search(folded) or _ONE_OFF_CALENDAR_RE.search(folded)
+    if calendar or _NEGATED_DAY_RE.search(folded) or (strict and (_ONE_OFF_RE.search(folded) or has_unsupported_scope(folded))):
+        return DayScope(problem="periode")
+    rest = bool(_REST_RE.search(folded))
+    folded = _NOT_A_RHYTHM_RE.sub(" ", _REST_RE.sub(" ", folded))
+    days: set[int] = set()
+    if re.search(r"\bsemaine\b|\bjours? (?:de cours|ouvres?|ouvrables?)\b", folded):
+        days.update(range(5))
+    if re.search(r"\bweek ?ends?\b", folded):
+        days.update((5, 6))
+    for m in re.finditer(r"\b(" + _WEEKDAY_ALT + r")s?\b", folded):
+        days.add(_WEEKDAY_WORDS[m.group(1)])
+    if len(days) == 7:
+        days = set()
+    return DayScope(tuple(sorted(days)) or None, rest)
+
+
+def scope_from_value(value) -> DayScope:
+    """Le « jours » proposé par l'IA (texte ou liste : « semaine », « weekend », ["lundi", "mercredi"], « tous »…)."""
+    if value is None or value is False:
+        return DayScope()
+    items = value if isinstance(value, (list, tuple)) else [value]
+    days: set[int] = set()
+    rest = False
+    for item in items:
+        word = _fold(item)
+        if word in DAYS:
+            days.add(DAYS.index(word))
+            continue
+        scope = parse_day_scope(word)
+        if scope.problem:
+            return scope
+        days.update(scope.days or ())
+        rest = rest or scope.rest
+    if len(days) == 7:
+        days = set()
+    return DayScope(tuple(sorted(days)) or None, rest)
+
+
+_PIECE_SPLIT_RE = re.compile(r"\s*(?:;|,(?!\d)|\bet\b|\bpuis\b|\bmais\b)\s*", re.IGNORECASE)
+SCOPE_PERIOD_TEXT = ("🤔 Pour le podcast, je comprends « en semaine », « le week-end », « tous les jours » ou un jour de la semaine "
+                     "(« le lundi »). Je ne gère pas encore une date précise, une période ni une exception (« demain », « du 12 au 15 », "
+                     "« sauf le dimanche »…).")
+SCOPE_REFUSED_SHORT = ("réglage non appliqué : pour le podcast je comprends « en semaine », « le week-end » ou un jour de la semaine, "
+                       "pas une date précise ni une période")
+SCOPE_UNCLEAR_TEXT = ("🤔 Je n'ai pas compris à quels jours va chaque valeur, et je ne devine pas. Dis-le comme ça : "
+                      "« 3 en semaine et 5 le week-end ».")
+
+
+@dataclass
+class ScopedOrder:
+    value: object
+    days: tuple[int, ...] | None = None
+    rest: bool = False
+
+
+@dataclass
+class ScopedOrders:
+    orders: list[ScopedOrder]
+    problem: str | None = None      # "valeur" : aucune valeur comprise · "periode" · "flou" (jours pas clairs)
+
+
+def minutes_spans(text: str) -> list[tuple[int, int, object]]:
+    """Les durées dites dans `text` : (début, fin, minutes). « 3 minutes », « 1,5 », « 90 secondes »…"""
+    out = []
+    for m in re.finditer(r"(\d+(?:[.,]\d+)?)\s*(?:secondes?|sec|s|minutes?|mins?|m)?\b", text, re.IGNORECASE):
+        value = parse_duree(m.group(0))
+        if value is not None:
+            out.append((m.start(), m.end(), value))
+    return out
+
+
+# --------------------------------------------------------------------------- une durée dite en phrase libre
+# « Je voudrais un podcast de 3 minutes en semaine et de 5 minutes le week-end », au clavier ou en vocal. Comme pour l'heure du
+# réveil, c'est lu à règles fixes : une IA d'extraction peut oublier les jours, et un ordre pris à moitié, c'est un ordre ignoré.
+_SPOKEN_NUMBERS = {"un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8}
+_NUMBER_ALT = "|".join(_SPOKEN_NUMBERS)
+_SPOKEN_HALF_RE = re.compile(r"\b(" + _NUMBER_ALT + r")\s+minutes?\s+et\s+demie?\b")
+_BARE_HALF_RE = re.compile(r"\b(\d|deux|trois|quatre|cinq|six|sept|huit)\s+et\s+demie?\b(?!\s*(?:heures?|h\b))")
+_SPOKEN_MINUTES_RE = re.compile(r"\b(" + _NUMBER_ALT + r")\s+minutes?\b")
+_EXPLICIT_MINUTES_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:minutes?|mins?|mn)\b")
+_PODCAST_SUBJECT_RE = re.compile(r"\b(?:podcasts?|durees?|durer|dure|durent|emissions?|episodes?|briefing|resume)\b")
+_FREE_REQUEST_RE = re.compile(
+    r"\b(?:je (?:voudrais|veux|souhaite|souhaiterais|prefere|preferais)|j (?:aimerais|aimerai|voudrais)|"
+    r"(?:mets|mettez|met|fais|faites|regle|reglez|passe|passez|change|changez|garde|gardez|prends|prenez|donne|donnez|"
+    r"reduis|diminue|augmente|allonge|raccourcis)(?: moi)?|il faudrait|il faut|faudrait|tu peux|peux tu|tu pourrais|pourrais tu|"
+    r"(?:ce|ca|cela) serait (?:bien|mieux|top|parfait|super)|plutot|desormais|dorenavant|a partir de maintenant)\b"
+)
+# « 10 minutes avant le réveil », « plus tôt » : une durée, mais pas celle du podcast.
+_FREE_OFFSET_RE = re.compile(r"\b(?:avant|apres|plus tot|plus tard|en avance|en retard|d avance|de retard|depuis|il y a)\b")
+
+
+# Un chiffre seul compte comme une durée quand il est collé à un type de jour (« … et 5 le week-end », « le week-end 5 »),
+# sauf s'il est suivi d'une autre unité (7 h, 2 fois, 20 ans…). Ailleurs (« j'ai 2 cours le lundi »), c'est autre chose.
+_BARE_MINUTES_RE = re.compile(
+    r"(?<![\d.,:])\b(\d(?:[.,]5)?)\b(?!\s*(?:h\b|heures?|fois|jours?|ans?|euros?|%|e\b|eme\b|ieme\b|er\b|\d|:|[.,]\d))"
+)
+_SCOPE_WORDS = (r"(?:week ?ends?|semaines?|lundis?|mardis?|mercredis?|jeudis?|vendredis?|samedis?|dimanches?|sinon|autres jours|"
+                r"tous les jours|reste du temps|jours ouvres)")
+_SCOPE_AFTER_RE = re.compile(r"^\s+(?:(?:le|la|les|en|du|au|aux|pour|de|des)\s+)?" + _SCOPE_WORDS + r"\b")
+_SCOPE_BEFORE_RE = re.compile(_SCOPE_WORDS + r"\s*[,:]?\s*(?:(?:de|a|pour|mets|met)\s+)?$")
+_SPOKEN_BARE_RE = re.compile(r"\b(deux|trois|quatre|cinq|six|sept|huit)\b")      # « un » et « une » sont des articles
+_REASON_RE = re.compile(r"\b(?:parce que|parce qu|car|puisque|puisqu|vu que|etant donne que|sachant que|attendu que)\b")
+_WAKE_WORDS_RE = re.compile(r"\b(?:reveil|reveille\w*|alarme|sonne\w*|lever|leve\w*)\b")
+_SEPARATORS_RE = re.compile(r"(\s*(?:;|,(?!\d)|\bet\b|\bpuis\b|\bmais\b)\s*)")
+_CONTINUATION_GLUE = frozenset(
+    "et puis ensuite aussi pareil donc alors le la les en du de des au aux pour a sinon minute minutes min mins mn week end "
+    "weekend weekends semaine semaines jour jours ouvres ouvrables tous toutes autres reste temps".split()
+) | frozenset(_WEEKDAY_WORDS) | frozenset(day + "s" for day in _WEEKDAY_WORDS)
+
+
+def explicit_minutes_spans(text: str) -> list[tuple[int, int, object]]:
+    """Comme minutes_spans, mais seulement les durées AVEC leur unité (« 3 minutes », « 1,5 min ») : en phrase libre,
+    un nombre seul peut être une heure, un âge, un prix…"""
+    out = []
+    for m in _EXPLICIT_MINUTES_RE.finditer(text):
+        value = parse_duree(m.group(0))
+        if value is not None:
+            out.append((m.start(), m.end(), value))
+    return out
+
+
+def _next_to_scope(text: str, start: int, end: int) -> bool:
+    """Le mot (ou chiffre) de `text[start:end]` est-il collé à un type de jour, avant ou après ?"""
+    return bool(_SCOPE_AFTER_RE.match(text[end:end + 40]) or _SCOPE_BEFORE_RE.search(text[max(0, start - 40):start]))
+
+
+def _spoken_to_digits(folded: str) -> str:
+    """Écrit les durées d'une phrase d'ordre en chiffres AVEC leur unité : « trois minutes et demie » → « 3.5 minutes » ;
+    « … et cinq le week-end » → « … et 5 minutes le week-end » (un nombre seul, collé à un type de jour, est une durée :
+    « j'ai 2 cours le lundi » n'en est pas une)."""
+    folded = _SPOKEN_HALF_RE.sub(lambda m: f"{_SPOKEN_NUMBERS[m.group(1)]}.5 minutes", folded)
+    folded = _SPOKEN_MINUTES_RE.sub(lambda m: f"{_SPOKEN_NUMBERS[m.group(1)]} minutes", folded)
+    folded = _BARE_HALF_RE.sub(lambda m: f"{_SPOKEN_NUMBERS.get(m.group(1), m.group(1))}.5", folded)     # « 4 et demi le dimanche »
+    folded = _SPOKEN_BARE_RE.sub(
+        lambda m: str(_SPOKEN_NUMBERS[m.group(1)]) if _next_to_scope(folded, m.start(), m.end()) else m.group(0), folded)
+    for m in reversed(list(_BARE_MINUTES_RE.finditer(folded))):
+        if not folded.startswith(" minute", m.end()) and _next_to_scope(folded, m.start(), m.end()):
+            folded = folded[:m.end()] + " minutes" + folded[m.end():]
+    return folded
+
+
+def _without_wake_clauses(folded: str) -> str:
+    """Retire d'une phrase les morceaux qui parlent du réveil (« mets le réveil à 7h30 en semaine, et… ») : leurs jours ne sont
+    pas ceux de la durée du podcast."""
+    parts = _SEPARATORS_RE.split(folded)                 # texte, séparateur, texte, séparateur…
+    kept: list[str] = []
+    for i in range(0, len(parts), 2):
+        if _WAKE_WORDS_RE.search(parts[i]) or find_time(parts[i]):
+            continue
+        if kept:
+            kept.append(parts[i - 1])
+        kept.append(parts[i])
+    return "".join(kept)
+
+
+def _read_order_sentence(sentence: str, follows: bool) -> list[ScopedOrder] | None:
+    """Une phrase du message : les durées par jour qu'elle demande ; [] si ce n'est pas un ordre de durée ; None si un doute
+    (date, exception, jours flous, durée hors de 1 à 8 minutes) interdit de rien conclure du message."""
+    folded = _REASON_RE.split(_fold(sentence))[0]            # « …3 minutes parce que le lundi j'ai cours » : le lundi est une raison
+    if _FREE_OFFSET_RE.search(folded):
+        return []
+    is_order = bool(_PODCAST_SUBJECT_RE.search(folded) and _FREE_REQUEST_RE.search(folded))
+    tokens = re.findall(r"[a-z]+|\d+(?:\.\d+)?", folded)
+    is_follow_up = follows and bool(tokens) and all(
+        t in _CONTINUATION_GLUE or t in _SPOKEN_NUMBERS or re.fullmatch(r"\d+(?:\.\d+)?", t) for t in tokens)
+    if not (is_order or is_follow_up):
+        return []
+    if is_order:
+        folded = _without_wake_clauses(folded)
+    folded = _spoken_to_digits(folded)
+    mentions = len(_EXPLICIT_MINUTES_RE.findall(folded))
+    if mentions != len(explicit_minutes_spans(folded)):
+        return None                                          # « 12 minutes » : hors de 1 à 8, l'IA et les garde-fous s'en occupent
+    if not mentions:
+        return []
+    parsed = parse_scoped(folded, explicit_minutes_spans)
+    if parsed.problem or not parsed.orders:
+        return None
+    return parsed.orders if any(o.days or o.rest for o in parsed.orders) else []     # sans aucun jour dit : « mets le podcast à 3 minutes » reste à l'IA
+
+
+def scan_spoken_durations(text: str) -> tuple[list[ScopedOrder] | None, int]:
+    """Les durées de podcast demandées EN PHRASE, pour certains jours : « je voudrais un podcast de trois minutes en semaine
+    et de cinq minutes le week-end ». Retourne (ordres, nombre de mots du message qui ne sont PAS dans une phrase d'ordre).
+
+    Les ordres sont None tant que ce n'est pas clairement un ordre sur la durée du podcast avec au moins un type de jour
+    (l'IA décide alors, comme avant) ; en cas de doute (date, exception, jours flous, durée hors de 1 à 8 minutes), None
+    aussi : on ne devine pas."""
+    orders: list[ScopedOrder] = []
+    leftover = 0
+    follows = False                                          # la phrase d'avant était un ordre : « Et 5 minutes le week-end. » en est la suite
+    for sentence in re.split(r"(?<=[.!?…])\s+|\n+", str(text or "")):
+        found = _read_order_sentence(sentence, follows)
+        if found is None:
+            return None, 0
+        follows = bool(found)
+        if found:
+            orders += found
+        else:
+            leftover += len(sentence.split())
+    return (orders or None), leftover
+
+
+def parse_spoken_durations(text: str) -> list[ScopedOrder] | None:
+    """Voir scan_spoken_durations : seulement les ordres."""
+    return scan_spoken_durations(text)[0]
+
+
+def voice_spans(text: str) -> list[tuple[int, int, object]]:
+    """Les voix nommées dans `text` : (début, fin, voix)."""
+    out = []
+    for m in re.finditer(r"[^\W\d_][\w-]*", text):
+        value = parse_voix(m.group(0))
+        if value:
+            out.append((m.start(), m.end(), value))
+    return out
+
+
+def speed_spans(text: str) -> list[tuple[int, int, object]]:
+    """Les vitesses dites dans `text` : « lent », « très rapide », « normal », « +15% »…"""
+    out = []
+    for m in re.finditer(r"(?:tr[eè]s\s+)?(?:lent|rapide|normal)\b|[+\-−–]?\s*\d{1,2}\s*%", text, re.IGNORECASE):
+        value = parse_vitesse(m.group(0))
+        if value:
+            out.append((m.start(), m.end(), value))
+    return out
+
+
+def _one_value_pieces(piece: str, spans: list[tuple[int, int, object]]) -> list[tuple[str, object]]:
+    """Coupe un morceau qui dit plusieurs valeurs sans les séparer (« 3 semaine 5 week-end », « en semaine 3 minutes le
+    week-end 5 minutes ») : si le morceau COMMENCE par une valeur, chaque valeur ouvre un morceau ; sinon chacune le ferme."""
+    if len(spans) == 1:
+        return [(piece, spans[0][2])]
+    out: list[tuple[str, object]] = []
+    if not piece[:spans[0][0]].strip():                                  # « 3 semaine 5 week-end » : la valeur d'abord
+        cuts = [0] + [span[0] for span in spans[1:]] + [len(piece)]
+    else:                                                                # « en semaine 3 minutes le week-end 5 » : la valeur ferme
+        cuts = [0] + [span[1] for span in spans[:-1]] + [len(piece)]
+    for (a, b), span in zip(zip(cuts, cuts[1:]), spans):
+        out.append((piece[a:b], span[2]))
+    return out
+
+
+def parse_scoped(args: str, spans_of) -> ScopedOrders:
+    """« 3 », « 3 semaine 5 week-end », « 5 le week-end, 3 sinon », « femme en semaine et kore le week-end »… → une valeur par groupe de jours.
+
+    `spans_of(texte)` repère les valeurs dites (voir minutes_spans). Plusieurs valeurs : chacune doit dire ses jours (sauf la
+    première, qui vaut alors pour tous les jours : « 3 minutes, et 5 le week-end »). Rien n'est deviné."""
+    pieces: list[tuple[str, object]] = []                  # (morceau, valeur ou None)
+    for chunk in _PIECE_SPLIT_RE.split(str(args or "")):
+        if not chunk or not chunk.strip():
+            continue
+        spans = spans_of(chunk)
+        pieces += _one_value_pieces(chunk, spans) if spans else [(chunk, None)]
+    entries: list[list] = []                        # [valeur, jours (ensemble), rest]
+    pending_days: set[int] = set()
+    pending_rest = False
+    for piece, value in pieces:
+        scope = parse_day_scope(piece)
+        if scope.problem:
+            return ScopedOrders([], scope.problem)
+        if value is None:
+            if scope.days or scope.rest:            # « le samedi et le dimanche » : la suite des jours d'avant (ou de la valeur à venir)
+                if entries and not pending_days and not pending_rest:
+                    entries[-1][1] |= set(scope.days or ())
+                    entries[-1][2] = entries[-1][2] or scope.rest
+                else:
+                    pending_days |= set(scope.days or ())
+                    pending_rest = pending_rest or scope.rest
+            continue
+        days, rest = set(scope.days or ()), scope.rest
+        if not days and not rest:
+            days, rest = pending_days, pending_rest
+        entries.append([value, set(days), rest])
+        pending_days, pending_rest = set(), False
+    if not entries:
+        return ScopedOrders([], "valeur")
+    if any(not days and not rest for _, days, rest in entries[1:]):
+        return ScopedOrders([], "flou")
+    orders = [ScopedOrder(value, tuple(sorted(days)) or None, rest) for value, days, rest in entries]
+    orders.sort(key=lambda o: not o.rest)          # « sinon » d'abord : il ne doit jamais effacer les jours déjà réglés
+    return ScopedOrders(orders)

@@ -44,13 +44,16 @@ tri:
   malus_difficile: 1
   bonus_couverture: 0.5      # plusieurs journaux en parlent → un peu plus de poids
 
-# ----- Infos perso dites par le programme (jamais envoyées à une IA) -----
+# ----- Infos perso : cours, anniversaires, rappels (phrases écrites par le programme) -----
+# Si tu as une consigne sur la façon de les dire (« /consigne cite mes cours sans la salle »), Groq (jamais Gemini) les
+# reformule, puis le programme vérifie qu'aucune heure ni aucun nom n'a changé. Sans consigne de ce genre : aucune IA.
 perso:
   anniversaires_jours_avant: [7, 1, 0]
   rappels_jours_avant: [3, 1, 0]
   max_lignes: 4              # 0 = pas de segment perso du tout
   cours: true                # dire tes cours du jour (lus sur ton emploi du temps, voir /cours dans Telegram)
   consignes_dans_podcast: true   # tes consignes de style (/consignes) accompagnent l'écriture du podcast
+  style_ia: true             # false = tes consignes ne s'appliquent pas à ces phrases : rien n'est envoyé à Groq
 
 # ----- Réveil : le téléphone joue reveil.mp3 à l'heure choisie (/reveil dans Telegram) -----
 reveil:
