@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680316,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-19",
+ "question_en_attente": {
+  "id": "q20261020-2110",
+  "date": "2026-10-20T21:10:52.861176+02:00",
+  "texte": "Comment envisages‑tu d’associer la robotique faciale 3D à tes effets de compositing pour créer des personnages plus réalistes dans tes prochains projets ?"
+ },
+ "derniere_question_du_soir": "2026-10-20",
  "stt_historique": [
   [
    1792193211.6432483,
