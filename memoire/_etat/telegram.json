@@ -1,12 +1,8 @@
 {
  "version": 1,
- "offset": 176680312,
+ "offset": 176680313,
  "file": [],
- "question_en_attente": {
-  "id": "q20261019-1926",
-  "date": "2026-10-19T19:26:57.487529+02:00",
-  "texte": "Quel type d’équipement comptes‑tu louer demain pour ton tracking Nuke, et comment penses‑tu que chaque pièce va transformer ton workflow ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-19",
  "stt_historique": [
   [
