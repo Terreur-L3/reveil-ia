@@ -20,8 +20,31 @@
   "podcast": {
     "minutes": null,
     "voix": "gemini:Achird",
-    "vitesse": null
+    "vitesse": null,
+    "jours": {
+      "lun": {
+        "minutes": 4.0
+      },
+      "mar": {
+        "minutes": 4.0
+      },
+      "mer": {
+        "minutes": 4.0
+      },
+      "jeu": {
+        "minutes": 4.0
+      },
+      "ven": {
+        "minutes": 4.0
+      },
+      "sam": {
+        "minutes": 6.0
+      },
+      "dim": {
+        "minutes": 6.0
+      }
+    }
   },
-  "sonnette_vue": "2026-10-20T11:16:33+02:00",
-  "journal_offset": 176680316
+  "sonnette_vue": "2026-10-21T00:51:33+02:00",
+  "journal_offset": 176680317
 }
