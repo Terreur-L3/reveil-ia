@@ -1,16 +1,12 @@
 {
  "version": 1,
- "offset": 176680317,
+ "offset": 176680318,
  "file": [],
- "question_en_attente": {
-  "id": "q20261021-2134",
-  "date": "2026-10-21T21:34:31.245900+02:00",
-  "texte": "Ce soir, quels éléments précis du tracking Nuke comptes‑tu explorer pour pousser ton projet plus loin, et quelles idées créatives t’inspirent ?"
- },
+ "question_en_attente": null,
  "derniere_question_du_soir": "2026-10-21",
  "stt_historique": [
   [
-   1792193211.6432483,
+   1792611358.5384378,
    10.0
   ]
  ],
