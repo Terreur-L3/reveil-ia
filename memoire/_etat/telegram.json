@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680318,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-21",
+ "question_en_attente": {
+  "id": "q20261022-2127",
+  "date": "2026-10-22T21:27:14.022028+02:00",
+  "texte": "Ce soir, quel petit gadget domotique low‑cost aimerais‑tu concevoir pour automatiser une tâche quotidienne, et quelles étapes prévois‑tu pour le réaliser ?"
+ },
+ "derniere_question_du_soir": "2026-10-22",
  "stt_historique": [
   [
    1792611358.5384378,
