@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-31",
+  "genere_a": "2026-10-31T13:45:37+01:00",
+  "mots": 838,
+  "modele": "gemini/gemini-3-flash-preview",
+  "mode": "normal",
+  "tri": {
+    "ok": true,
+    "modele": "gemini/gemini-3-flash-preview",
+    "actus": 48,
+    "retenues": 5,
+    "calme": false,
+    "profil": "memoire"
+  },
+  "perso": {
+    "lignes": 0
+  },
+  "consignes": 1,
+  "origine": "sonnette",
+  "audio": true,
+  "voix": "gemini:Achird",
+  "duree_s": 261,
+  "reveil_mp3": true,
+  "telegram": true
+}

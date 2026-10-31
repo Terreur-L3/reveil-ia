@@ -1,0 +1,43 @@
+Choix du 2026-10-31 — 48 actus examinées
+Profil de lecture : mémoire (26 sujets appris)
+Tri par gemini/gemini-3-flash-preview
+
+RETENUES
+1. [positif] importance 4 · intérêt 10 · score 8.6 — Sirui Swift: two new autofocus primes for… $149 each (ProVideo Coalition, cinema)
+2. [neutre] importance 8 · intérêt 10 · score 9.2 — Mischief 1, un modèle vidéo « dérivé de neurones vivants » : pardon ? (Numerama, tech)
+3. [positif] importance 4 · intérêt 10 · score 8.6 — Edit Faster in DaVinci Resolve With These Blackmagic Hardware Add-ons (No Film School, cinema)
+4. [positif] importance 3 · intérêt 9 · score 7.6 — New Halloween Game Put Original Michael Myers Actor in a Mocap Suit (80 Level, 3d)
+5. [positif] importance 3 · intérêt 8 · score 7.0 — GAOMON PD1561 V2: Affordable Entry-Level 16-Inch Pen Display (80 Level, 3d)
+
+ÉCARTÉES (les mieux notées)
+- importance 3 · intérêt 9 — Bending Time Mid-Shot – Zack Snyder’s Speed Ramp (CineD) → au-delà de 5 sujets
+- importance 5 · intérêt 9 — Blackmagic Design Announces New UltraStudio Express HD (ProVideo Coalition) → limite par catégorie
+- importance 4 · intérêt 9 — Nikon NIKKOR Z 120-300mm f/2.8 TC VR S Finalized – 420mm f/4 Reach, 6.5-Stop VR, and a Lighter Body (CineD) → limite par catégorie
+- importance 4 · intérêt 9 — Art of the Frame Podcast: The Alan Smithee Round Table – Post in Transition and Updates from NAB New York (ProVideo Coalition) → limite par catégorie
+- importance 8 · intérêt 2 — EN DIRECT, guerre en Ukraine : des centaines de milliers de foyers privés d’électricité dans les régions de Dnipro et de Kiev à la suite de bombardements russes (Le Monde) → au-delà de 5 sujets
+- importance 4 · intérêt 8 — The Teaser Trailer for 'Death Stranding: Isolations' Offers a Masterclass in World-Building Across Mediums (No Film School) → limite par catégorie
+- importance 6 · intérêt 7 — Sam Altman (OpenAI) préfèrerait que la RAM de votre PC aille dans ses datacenters (Numerama) → au-delà de 5 sujets
+- importance 2 · intérêt 7 — Fujifilm introduces instax mini Evo 2 hybrid instant camera (ProVideo Coalition) → au-delà de 5 sujets
+- importance 7 · intérêt 4 — La barrière « impénétrable » des ceintures de Van Allen autour de la Terre a finalement été franchie (Numerama) → au-delà de 5 sujets
+- importance 2 · intérêt 7 — Film Quote of the Day: How Splatterfest Cult Classic 'Hardware' Defined the Value of Human Life (No Film School) → au-delà de 5 sujets
+- importance 3 · intérêt 6 — ☕️ Windows 11 a son nouveau menu contextuel et oui, il est « rapide » (Next) → sous les seuils d'importance et d'intérêt
+- importance 6 · intérêt 2 — La Nasa a des millions de données à explorer : et si vous étiez le premier à découvrir un trou noir ? (Futura Sciences) → sous les seuils d'importance et d'intérêt
+
+SOURCES
+- franceinfo : 30 récents (sur 32)
+- Le Monde : 16 récents (sur 16)
+- Futura Sciences : 25 récents (sur 50)
+- Good News Network : 7 récents (sur 50)
+- Positive News : 1 récents (sur 10)
+- Numerama : 15 récents (sur 15)
+- Next : 14 récents (sur 50)
+- Korben : 1 récents (sur 3)
+- No Film School : 13 récents (sur 30)
+- CineD : 2 récents (sur 20)
+- ProVideo Coalition : 9 récents (sur 10)
+- Blender : aucun article récent (sur 9)
+- 80 Level : 10 récents (sur 10)
+- Road to VR : 2 récents (sur 10)
+- UploadVR : 2 récents (sur 64)
+- Réalité-Virtuelle : EN ÉCHEC (HTTP 403)
+- jeuxvideo.com : 20 récents (sur 20)
