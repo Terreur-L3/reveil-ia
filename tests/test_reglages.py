@@ -949,5 +949,81 @@ class TestTheAiNeverOverridesWhatWasRead(unittest.TestCase):
         self.assertEqual(self.conflicts([rest], "Je veux un podcast de 5 le week-end, 3 sinon"), [])
 
 
+# =========================================================================== la salle des cours : /cours salle jamais
+class TestRoomSetting(unittest.TestCase):
+    """Dire la salle des cours : « auto » (par défaut), « toujours » ou « jamais » — une clé de reglages.json qui n'existe que si on l'a changée."""
+
+    def test_nothing_is_written_until_you_change_it(self):
+        settings = fresh()
+        self.assertNotIn("perso", settings)
+        self.assertEqual(R.salle_mode(settings), "auto")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reglages.json"
+            R.save(path, settings)
+            self.assertNotIn("perso", json.loads(path.read_text(encoding="utf-8")))     # le fichier garde son format d'avant
+
+    def test_set_never_always_then_back_to_auto(self):
+        settings = fresh()
+        self.assertEqual(R.set_salle(settings, "jamais"), "salle des cours : jamais dite")
+        self.assertEqual(settings["perso"], {"salle": "jamais"})
+        self.assertEqual(R.salle_mode(settings), "jamais")
+        self.assertEqual(R.set_salle(settings, "toujours"), "salle des cours : toujours dite")
+        self.assertEqual(R.salle_mode(settings), "toujours")
+        self.assertIn("seulement quand elle change", R.set_salle(settings, "auto"))
+        self.assertNotIn("perso", settings)                                              # « auto » efface la clé : rien ne traîne
+        self.assertEqual(R.salle_mode(settings), "auto")
+
+    def test_an_unknown_mode_is_refused(self):
+        with self.assertRaises(ValueError):
+            R.set_salle(fresh(), "parfois")
+
+    def test_it_survives_a_save_and_a_load_and_never_disturbs_the_rest(self):
+        settings = fresh()
+        R.apply_request(settings, req("set", "06:30", WEEK), NOW)
+        R.set_podcast(settings, "minutes", 3, WEEK)
+        R.set_salle(settings, "jamais")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reglages.json"
+            R.save(path, settings)
+            again = R.load(path)
+        self.assertEqual(again, settings)
+        self.assertEqual(again["reveil"]["jours"]["lun"], "06:30")                       # la sonnette lit toujours la même chose
+        self.assertEqual(again["podcast"]["jours"]["lun"], {"minutes": 3})
+
+    def test_a_hand_edited_file_with_nonsense_falls_back_to_auto(self):
+        for bad in ({"perso": {"salle": "peut-être"}}, {"perso": "jamais"}, {"perso": {"salle": None}}, {"perso": {"salle": "auto"}}, {"perso": 3}):
+            with self.subTest(bad):
+                normal = R.normalize(bad)
+                self.assertNotIn("perso", normal)
+                self.assertEqual(R.salle_mode(normal), "auto")
+        self.assertEqual(R.normalize({"perso": {"salle": "toujours", "autre": 1}})["perso"], {"salle": "toujours"})
+
+    def test_it_reaches_the_config_without_touching_the_original(self):
+        cfg = {"perso": {"cours": True}, "mots_cibles": 300}
+        settings = fresh()
+        self.assertEqual(R.apply_to_cfg(cfg, settings, TODAY)["perso"], {"cours": True})        # « auto » : config.yaml décide
+        R.set_salle(settings, "jamais")
+        out = R.apply_to_cfg(cfg, settings, TODAY)
+        self.assertEqual(out["perso"], {"cours": True, "salle": "jamais"})
+        self.assertEqual(cfg["perso"], {"cours": True})                                          # l'original n'est pas modifié
+        self.assertEqual(R.apply_to_cfg({}, settings)["perso"], {"salle": "jamais"})            # même sans section perso
+        self.assertEqual(R.apply_to_cfg({"perso": None}, settings)["perso"], {"salle": "jamais"})
+
+    def test_what_you_say_is_understood(self):
+        cases = {
+            "jamais": "jamais", "sans": "jamais", "off": "jamais", "non merci": "jamais", "ne la dis plus": "jamais",
+            "ne dis jamais la salle": "jamais", "plus du tout": "jamais",
+            "toujours": "toujours", "avec": "toujours", "on": "toujours", "dis-la": "toujours", "garde la": "toujours",
+            "auto": "auto", "automatique": "auto", "seulement si elle change": "auto", "quand elle change": "auto",
+            "pas toujours": "auto", "ta salle habituelle": "auto",
+        }
+        for text, mode in cases.items():
+            with self.subTest(text):
+                self.assertEqual(R.parse_salle(text), mode)
+        for text in ("", "n'importe quoi", "12 mardi 9h-12h montage"):
+            with self.subTest(text):
+                self.assertIsNone(R.parse_salle(text))
+
+
 if __name__ == "__main__":
     unittest.main()

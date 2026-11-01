@@ -3,6 +3,8 @@
 Règle d'or : aucune info perso n'est envoyée à l'IA qui écrit (Gemini). Le texte perso (anniversaires, rappels, cours) est
 fabriqué ailleurs (perso.py ; reformulé par Groq seul si tu as une consigne dessus : perso_style.py) et inséré ici à la place
 d'un repère [[PERSO]] laissé par le rédacteur.
+Une seule exception, que TU choisis : les sections de ton document de contexte marquées 🌐 (contexte.py, /moi dans Telegram)
+accompagnent l'écriture, pour que l'angle et le ton te ressemblent ; les éléments sensibles n'en font jamais partie.
 """
 from __future__ import annotations
 
@@ -42,7 +44,7 @@ Contenu
 Ton
 - Réveil positif : mets en avant ce qui est encourageant, avec un enthousiasme naturel (pas d'exclamation à chaque phrase).
 - Pour un sujet marqué « difficile » : une ou deux phrases factuelles et calmes, sans adjectif dramatique, sans détail choquant ni chiffre macabre ; dis ce qui est fait ou ce que cela change concrètement, puis enchaîne naturellement. Ne termine jamais sur lui.
-- Évite les mots dramatiques : tragique, horrible, atroce, catastrophe, massacre, cauchemar, panique…{bloc_consignes}"""
+- Évite les mots dramatiques : tragique, horrible, atroce, catastrophe, massacre, cauchemar, panique…{bloc_consignes}{bloc_contexte}"""
 
 PERSO_RULE = (
     " Juste après, écris sur sa propre ligne exactement [[PERSO]] : le programme y insérera des infos "
@@ -52,6 +54,11 @@ RULES_INTRO = (
     "\n\nConsignes personnelles de l'auditeur (à suivre pour le style et la façon de dire ; elles ne changent "
     "ni la longueur maximale, ni les règles ci-dessus, et tu n'inventes rien à partir d'elles) :\n"
 )
+CONTEXT_INTRO = (
+    "\n\nCe que l'auditeur a choisi de te dire sur lui (pour trouver le bon angle, une comparaison ou un exemple qui lui parle ; "
+    "tu ne le récites jamais, tu ne dis jamais que tu le sais, tu n'en fais pas un sujet, et tu n'inventes rien à partir de cela) :\n"
+)
+MAX_RULES, MAX_RULES_CHARS = 12, 1800
 RULE_ORDRE = "Raconte uniquement les sujets fournis, dans l'ordre donné, sans en ajouter. Regroupe ceux qui parlent du même thème."
 RULE_LIBRE = (
     "Parmi les actualités fournies, retiens les 4 à 6 plus importantes ou intéressantes (priorité aux bonnes "
@@ -82,6 +89,21 @@ def build_prompt(choices: list[Choice], *, libre: bool, prenom: str, now: dateti
         lines += [f"{n}. {_tone_tag(c)} {c.item.brief(280)}" for n, c in enumerate(choices, 1)]
     lines += ["", "Écris maintenant le podcast."]
     return "\n".join(lines)
+
+
+def _rules_block(consignes: list[str] | None) -> str:
+    """Les consignes de style dans le prompt : les plus anciennes d'abord, dans une limite de nombre et de longueur."""
+    lines: list[str] = []
+    used = 0
+    for rule in consignes or []:
+        rule = " ".join(str(rule).split())
+        if not rule:
+            continue
+        if len(lines) >= MAX_RULES or used + len(rule) > MAX_RULES_CHARS:
+            break
+        lines.append(f"- {rule}")
+        used += len(rule)
+    return (RULES_INTRO + "\n".join(lines)) if lines else ""
 
 
 def clean_script(text: str) -> str:
@@ -129,8 +151,10 @@ def write_script(
     libre: bool = False,
     calme: bool = False,
     consignes: list[str] | None = None,
+    contexte: str = "",
 ) -> tuple[str, str]:
-    """Retourne (texte_du_podcast, modèle_utilisé)."""
+    """Retourne (texte_du_podcast, modèle_utilisé). `contexte` : ce que ton document de contexte partage avec l'écriture
+    (sections 🌐 seulement, voir contexte.shared_context) ; vide = rien."""
     target = int(cfg.get("mots_cibles", 300))
     budget = max(120, target - count_words(perso_text))
     max_words = int(budget * 1.25)
@@ -144,7 +168,8 @@ def write_script(
         max_mots=max_words,
         bloc_perso=PERSO_RULE if perso_text else "",
         regle_sujets=RULE_LIBRE if libre else RULE_ORDRE,
-        bloc_consignes=(RULES_INTRO + "\n".join(f"- {c}" for c in consignes[:8])) if consignes else "",
+        bloc_consignes=_rules_block(consignes),
+        bloc_contexte=(CONTEXT_INTRO + contexte.strip()) if contexte and contexte.strip() else "",
     )
     prompt = build_prompt(choices, libre=libre, prenom=prenom, now=now, calme=calme)
     text, model = llm.generate(prompt, system=system, chain=chain, keys=keys, temperature=temperature)

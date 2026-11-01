@@ -212,6 +212,47 @@ def default_perso(prompt: str) -> str:
     return m.group(1) if m else prompt
 
 
+_SECTION_LINE_RE = re.compile(r"^(\d+)\. (.*?)(?: — .*)?$")
+
+
+def default_classify(sections: list[str], lines: list[str]) -> list[dict]:
+    """Le « classeur » de ton document de contexte : range chaque phrase d'après des mots-clés (pas de vraie IA)."""
+
+    def find(word: str) -> int | None:
+        for i, title in enumerate(sections, 1):
+            if word.lower() in title.lower():
+                return i
+        return None
+
+    rows = []
+    for n, line in enumerate(lines, 1):
+        low = line.lower()
+        if "voyage" in low or "maroc" in low:
+            row = {"n": n, "section": None, "nouvelle": "Voyages"}
+        elif "politique" in low and "j'aime" in low or "passionné de politique" in low:
+            row = {"n": n, "section": find("Sujets qui")}
+        elif "tutoie" in low or "décontract" in low or "phrases courtes" in low or "humour" in low:
+            row = {"n": n, "section": find("parler")}
+        elif "ne veux plus" in low or "foot" in low:
+            row = {"n": n, "section": find("à éviter")}
+        elif "actus" in low or "veux entendre" in low:
+            row = {"n": n, "section": find("Sujets qui")}
+        elif re.search(r"\bans\b|étudiant|je m'appelle|j'habite", low):
+            row = {"n": n, "section": find("Qui je suis")}
+        elif re.search(r"école|projet|court-métrage|études", low):
+            row = {"n": n, "section": find("études")}
+        elif re.search(r"\bami\b|\bamis\b|frère|soeur|sœur|copain", low):
+            row = {"n": n, "section": find("personnes")}
+        elif re.search(r"film|cinéma|musique|série|blade", low):
+            row = {"n": n, "section": find("goûts")}
+        elif re.search(r"adore|pêche|passion|jeu|aime", low):
+            row = {"n": n, "section": find("hobbies")}
+        else:
+            row = {"n": n, "section": None}
+        rows.append(row)
+    return rows
+
+
 class World:
     def __init__(self):
         self.requests: list[Req] = []
@@ -222,6 +263,8 @@ class World:
         self.groq_fn = self.smart_groq
         self.extract_fn = default_extract
         self.perso_fn = default_perso                  # reformulation des infos perso (perso_style) : prompt → texte reformulé
+        self.classify_fn = default_classify            # rangement des phrases dans le document de contexte : (sections, phrases) → lignes
+        self.classify_calls: list[dict] = []           # {"sections": [...], "lignes": [...]} : ce que Groq a reçu
         self.question_n = 0
         self.tts_fn = self.smart_tts                   # Gemini TTS : (requête, « interactions » | « legacy », corps) → (statut, réponse)
         # Groq transcription
@@ -456,6 +499,14 @@ class World:
                                  "message_id": self._tg_message_id,
                                  "silent": fields.get("disable_notification") == "true"})
             return ok({"message_id": self._tg_message_id, "chat": {"id": int(fields.get("chat_id", 0))}})
+        if method == "sendDocument":
+            fields = req.multipart()
+            self._tg_message_id += 1
+            name, data = fields.get("document", ("", b""))
+            self.tg_sent.append({"method": "sendDocument", "caption": fields.get("caption", ""), "bytes": len(data),
+                                 "filename": name, "content": data.decode("utf-8", "replace"),
+                                 "chat_id": fields.get("chat_id"), "message_id": self._tg_message_id})
+            return ok({"message_id": self._tg_message_id, "chat": {"id": int(fields.get("chat_id", 0))}})
         if method == "setMyCommands":
             self.tg_sent.append({"method": "setMyCommands", "commands": body.get("commands")})
             return ok(True)
@@ -540,4 +591,10 @@ class World:
             return json.dumps(self.extract_fn(prompt), ensure_ascii=False)
         if "Tu réécris un court passage" in system:
             return json.dumps({"texte": self.perso_fn(prompt)}, ensure_ascii=False)
+        if "Tu ranges des informations dans le document de contexte" in system:
+            head, _, tail = prompt.partition("Informations à ranger :")
+            sections = [m.group(2) for m in map(_SECTION_LINE_RE.match, head.splitlines()) if m]
+            lines = [m.group(2) for m in map(_SECTION_LINE_RE.match, tail.strip().splitlines()) if m]
+            self.classify_calls.append({"sections": sections, "lignes": lines})
+            return json.dumps({"lignes": self.classify_fn(sections, lines)}, ensure_ascii=False)
         return "OK"

@@ -208,8 +208,7 @@ def build_segment_detail(racine: Path, cfg: dict | None, today: date) -> Segment
     if max_lines > 0 and cfg.get("cours", True):  # « max_lignes: 0 » coupe tout le segment perso
         try:
             data = edt.load(mem / "emploi_du_temps.yaml")
-            courses = edt.spoken(data, today)
-            titles = [c["cours"] for c in (edt.courses_for(data, today) or []) if c.get("cours")]
+            courses, titles = edt.spoken_detail(data, today, str(cfg.get("salle") or "auto").strip().lower())
         except Exception as exc:  # un fichier abîmé ne doit jamais empêcher le podcast
             log.warning("Emploi du temps ignoré : %s", exc)
             courses, titles = "", []

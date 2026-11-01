@@ -363,5 +363,236 @@ class TestPodcastSegment(unittest.TestCase):
             self.assertEqual(perso.build_segment(racine, {}, MON), ("", 0))
 
 
+# =========================================================================== les redites : un cours dit une seule fois, la salle seulement si elle apprend quelque chose
+def course(day, start, end, title, room=None):
+    return {"jour": day, "debut": start, "fin": end, "intitule": title, "salle": room, "enseignant": None}
+
+
+def timetable(courses, seen=("lun",)) -> dict:
+    data = edt.empty()
+    edt.merge(data, courses, list(seen), week=None, recurring=True, today=TODAY)
+    return data
+
+
+# Une semaine où presque tout se passe dans la même salle, sauf le vendredi.
+HABITUAL_WEEK = [
+    course("lun", "09:00", "12:00", "Étalonnage", "204"), course("mar", "09:00", "12:00", "Montage", "Salle 204"),
+    course("mer", "09:00", "12:00", "Cadrage", "204"), course("jeu", "09:00", "12:00", "Histoire du cinéma", "204"),
+    course("ven", "09:00", "12:00", "Prise de vue", "Studio B"),
+]
+WEEK_DAYS = ("lun", "mar", "mer", "jeu", "ven")
+
+
+class TestTheSameCourseIsSaidOnce(unittest.TestCase):
+    """« Lumière de 9 h à 12 h 30, puis Lumière de 14 h à 17 h 30 » : c'est le même cours, il est dit une seule fois."""
+
+    def test_morning_and_afternoon_of_the_same_course(self):
+        data = timetable([course("lun", "09:00", "12:30", "Lumière", "Ma classe"), course("lun", "14:00", "17:30", "Lumière", "Ma classe")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30.")
+
+    def test_the_lunch_break_does_not_cut_a_course_but_a_long_gap_does(self):
+        short = timetable([course("lun", "09:00", "12:00", "Lumière"), course("lun", "14:30", "17:00", "Lumière")])       # 2 h 30
+        self.assertEqual(edt.spoken(short, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 17 h.")
+        long = timetable([course("lun", "09:00", "11:00", "Lumière"), course("lun", "15:00", "17:00", "Lumière")])        # 4 h
+        self.assertEqual(edt.spoken(long, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 11 h, puis de 15 h à 17 h.")
+
+    def test_back_to_back_pieces_make_one_course(self):
+        data = timetable([course("lun", "09:00", "10:30", "Lumière"), course("lun", "10:30", "12:00", "Lumière")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 12 h.")
+
+    def test_an_exact_duplicate_is_one_course(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière", "204"), course("lun", "09:00", "12:00", "Lumière", "204")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, en salle 204.")
+
+    def test_matin_and_apres_midi_written_in_the_title_do_not_split_the_course(self):
+        for morning, afternoon in (("Lumière (matin)", "Lumière (après-midi)"), ("Matin : Lumière", "Après-midi : Lumière"),
+                                   ("Lumière - matin", "Lumière - après-midi")):
+            with self.subTest(morning):
+                data = timetable([course("lun", "09:00", "12:00", morning), course("lun", "13:30", "17:00", afternoon)])
+                self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 17 h.")
+
+    def test_without_end_times_the_title_is_still_said_once(self):
+        data = timetable([course("lun", "09:00", None, "Lumière"), course("lun", "14:00", None, "Lumière")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière à 9 h, puis à 14 h.")
+
+    def test_a_piece_without_an_end_is_never_merged_into_a_range(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière"), course("lun", "14:00", None, "Lumière")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, puis à 14 h.")
+
+    def test_different_courses_stay_different(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière"), course("lun", "14:00", "17:00", "Montage")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, puis Montage de 14 h à 17 h.")
+
+    def test_another_course_in_between_keeps_the_pieces_apart(self):
+        data = timetable([course("lun", "09:00", "11:00", "Lumière"), course("lun", "11:00", "13:00", "Montage"),
+                          course("lun", "14:00", "17:00", "Lumière")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 11 h, puis Montage de 11 h à 13 h, "
+                                                "puis Lumière de 14 h à 17 h.")
+
+    def test_the_same_title_in_two_different_rooms_is_two_courses(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière", "204"), course("lun", "14:00", "17:00", "Lumière", "Studio B")])
+        self.assertEqual(edt.spoken(data, MON),
+                         "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, en salle 204, puis Lumière de 14 h à 17 h, en Studio B.")
+
+    def test_a_missing_or_generic_room_does_not_prevent_the_merge(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière", None), course("lun", "14:00", "17:00", "Lumière", "204")])
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Lumière de 9 h à 17 h, en salle 204.")
+
+    def test_the_busy_day_summary_counts_courses_not_slots(self):
+        six_slots = []
+        for title, (a, b) in (("Lumière", ("08:00", "10:00")), ("Montage", ("10:00", "12:00")), ("Cadrage", ("14:00", "16:00"))):
+            six_slots += [course("lun", a, b, title), course("lun", "17:00" if title == "Cadrage" else a, "18:00" if title == "Cadrage" else b, title)]
+        data = timetable(six_slots)
+        text = edt.spoken(data, MON)
+        self.assertTrue(text.startswith("Côté cours, aujourd'hui : "), text)             # 3 cours : listés, pas résumés
+        self.assertNotIn("tu as", text)
+        many = [course("lun", f"{h:02d}:00", f"{h:02d}:50", f"Cours {h}") for h in (8, 9, 10, 11, 14)]
+        self.assertTrue(edt.spoken(timetable(many), MON).startswith("Aujourd'hui, tu as 5 cours"))
+
+    def test_the_summary_uses_the_clean_title_and_one_room_rule(self):
+        many = [course("lun", f"{h:02d}:00", f"{h:02d}:50", f"Cours {h} (matin)", "A1") for h in (8, 9, 10, 11, 14)]
+        text = edt.spoken(timetable(many), MON, "toujours")
+        self.assertEqual(text, "Aujourd'hui, tu as 5 cours, de 8 h à 14 h 50. Le premier : Cours 8 à 8 h, en salle A1.")
+
+    def test_sunday_announces_the_clean_title(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière (matin)")])
+        self.assertEqual(edt.spoken(data, SUN), "Demain, ça reprend : premier cours à 9 h, Lumière.")
+
+    def test_the_titles_given_to_the_anchors_are_the_spoken_ones(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière (matin)"), course("lun", "13:30", "17:00", "Lumière (après-midi)"),
+                          course("lun", "17:00", "18:00", "Montage")])
+        text, titles = edt.spoken_detail(data, MON)
+        self.assertEqual(titles, ["Lumière", "Montage"])
+        self.assertIn("Lumière de 9 h à 17 h", text)
+
+    def test_clean_title(self):
+        cases = {"Lumière (matin)": "Lumière", "Lumière (le matin)": "Lumière", "Après-midi : Lumière": "Lumière",
+                 "Matin - Lumière": "Lumière", "Montage – après-midi": "Montage", "Histoire du cinéma": "Histoire du cinéma",
+                 "Matin": "Matin", "Réveil matin": "Réveil matin", "Atelier du matin": "Atelier du matin", "": ""}
+        for raw, expected in cases.items():
+            with self.subTest(raw):
+                self.assertEqual(edt.clean_title(raw), expected)
+
+
+class TestTheRoomIsSaidOnlyWhenItTellsYouSomething(unittest.TestCase):
+    """« en ma classe » tous les jours n'apprend rien : la salle n'est dite que quand elle change."""
+
+    def test_generic_labels_are_not_rooms(self):
+        for room in ("Ma classe", "ma classe", "En classe", "Salle de classe", "Dans ma classe", "Classe", "Ta classe"):
+            with self.subTest(room):
+                self.assertTrue(edt.is_generic_room(room))
+        for room in ("Classe 2B", "204", "Studio B", "Salle de montage", "Amphi A", "Visio", ""):
+            with self.subTest(room):
+                self.assertFalse(edt.is_generic_room(room))
+
+    def test_my_class_is_never_said_in_any_mode(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière", "Ma classe"), course("lun", "14:00", "17:00", "Montage", "Ma classe")])
+        for mode in ("auto", "toujours", "jamais"):
+            with self.subTest(mode):
+                self.assertEqual(edt.spoken(data, MON, mode),
+                                 "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, puis Montage de 14 h à 17 h.")
+
+    def test_the_usual_room_is_not_repeated_but_a_different_one_is(self):
+        data = timetable(HABITUAL_WEEK, WEEK_DAYS)
+        self.assertEqual(edt.usual_room(data), "204")                          # « Salle 204 » et « 204 » sont la même salle
+        self.assertEqual(edt.spoken(data, MON), "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h.")
+        self.assertEqual(edt.spoken(data, TUE), "Côté cours, aujourd'hui : Montage de 9 h à 12 h.")
+        self.assertEqual(edt.spoken(data, date(2026, 10, 9)), "Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h, en Studio B.")
+
+    def test_a_dated_exception_in_another_room_is_said(self):
+        data = timetable(HABITUAL_WEEK, WEEK_DAYS)
+        edt.merge(data, [course("lun", "10:00", "12:00", "Visite", "Amphi A")], ["lun"], week=NEXT_MON, recurring=False, today=TODAY)
+        self.assertEqual(edt.spoken(data, NEXT_MON), "Côté cours, aujourd'hui : Visite de 10 h à 12 h, en Amphi A.")
+
+    def test_rooms_that_vary_are_all_said(self):
+        self.assertEqual(edt.usual_room(filled()), "")
+        self.assertIn("en salle 204", edt.spoken(filled(), MON))
+        self.assertIn("en Studio B", edt.spoken(filled(), MON))
+
+    def test_too_few_courses_to_know_the_usual_room(self):
+        data = timetable([course("lun", "09:00", "12:00", "Lumière", "204"), course("lun", "14:00", "17:00", "Montage", "204")])
+        self.assertEqual(edt.usual_room(data), "")
+        self.assertEqual(edt.spoken(data, MON),
+                         "Côté cours, aujourd'hui : Lumière de 9 h à 12 h, en salle 204, puis Montage de 14 h à 17 h, en salle 204.")
+
+    def test_a_room_that_is_only_a_bit_more_common_is_not_the_usual_one(self):
+        data = timetable([course(d, "09:00", "12:00", f"Cours {i}", room) for i, (d, room) in
+                          enumerate([("lun", "204"), ("mar", "204"), ("mer", "Studio B"), ("jeu", "Studio B"), ("ven", "12")])], WEEK_DAYS)
+        self.assertEqual(edt.usual_room(data), "")                             # 2 sur 5 : pas « presque tous »
+
+    def test_the_three_modes(self):
+        data = timetable(HABITUAL_WEEK, WEEK_DAYS)
+        self.assertEqual(edt.spoken(data, MON, "toujours"), "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h, en salle 204.")
+        self.assertEqual(edt.spoken(data, date(2026, 10, 9), "toujours"), "Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h, en Studio B.")
+        self.assertEqual(edt.spoken(data, date(2026, 10, 9), "jamais"), "Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h.")
+        self.assertEqual(edt.spoken(data, MON, "n'importe quoi"), edt.spoken(data, MON, "auto"))
+        self.assertEqual(edt.ROOM_MODES, ("auto", "toujours", "jamais"))
+
+    def test_the_default_is_auto(self):
+        data = timetable(HABITUAL_WEEK, WEEK_DAYS)
+        self.assertEqual(edt.spoken(data, MON), edt.spoken(data, MON, "auto"))
+        self.assertEqual(edt.spoken_detail(data, MON)[0], edt.spoken(data, MON))
+
+
+class TestDaysWithoutCourses(unittest.TestCase):
+    """« mardi pas de cours » : une phrase qui ne dit que ça est lue par des règles, sans IA."""
+
+    def test_the_phrases_that_are_understood(self):
+        cases = {
+            "mardi pas de cours": ["mar"], "pas de cours le mardi": ["mar"], "le mercredi et le vendredi : libre": ["mer", "ven"],
+            "pas de cours le week-end": ["sam", "dim"], "pas de cours le weekend": ["sam", "dim"], "mardis rien": ["mar"],
+            "il n'y a pas de cours le jeudi": ["jeu"], "mardi pas de cours cette semaine seulement": ["mar"],
+            "Lundi, mardi : aucun cours": ["lun", "mar"], "mon mardi est libre": ["mar"],
+        }
+        for text, days in cases.items():
+            with self.subTest(text):
+                self.assertEqual(edt.parse_free_days(text), days)
+
+    def test_everything_else_is_a_timetable_to_read(self):
+        for text in ("lundi 9h-12h étalonnage ; mardi pas de cours", "lundi atelier libre", "pas de cours", "libre", "",
+                     "pas de cours car grève mardi", "tous les jours pas de cours", "mardi 9h pas de cours", "lundi salle 204 libre",
+                     "bonjour tout le monde"):
+            with self.subTest(text):
+                self.assertIsNone(edt.parse_free_days(text))
+
+    def test_a_free_day_is_said_as_such_and_an_unknown_day_stays_silent(self):
+        data = filled()
+        edt.merge(data, [], ["jeu"], week=None, recurring=True, today=TODAY)
+        self.assertEqual(data["semaine_type"]["jeu"], [])
+        self.assertEqual(edt.spoken(data, THU), "Pas de cours aujourd'hui.")
+        self.assertIn("Étalonnage", edt.spoken(data, MON))                       # les autres jours ne bougent pas
+
+    def test_the_help_line_lists_what_can_be_changed(self):
+        text = edt.week_text(filled(), TODAY)
+        for command in ("/cours lundi 9h-17h", "/cours mardi pas de cours", "/cours salle jamais", "/cours effacer"):
+            self.assertIn(command, text)
+
+
+class TestPersoUsesTheNewText(unittest.TestCase):
+    def project(self, tmp, courses) -> Path:
+        racine = Path(tmp)
+        (racine / "memoire").mkdir()
+        edt.save(racine / "memoire" / "emploi_du_temps.yaml", courses)
+        return racine
+
+    def test_the_podcast_says_the_course_once_and_without_my_class(self):
+        data = timetable([course("lun", "09:00", "12:30", "Lumière", "Ma classe"), course("lun", "14:00", "17:30", "Lumière", "Ma classe")])
+        with tempfile.TemporaryDirectory() as tmp:
+            segment = perso.build_segment_detail(self.project(tmp, data), {}, MON)
+        self.assertEqual(segment.text, "Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30.")
+        self.assertEqual(segment.anchors, [("cours", "Lumière")])               # un seul mot-clé à garder, pas deux
+
+    def test_the_room_setting_of_the_config_reaches_the_text(self):
+        data = timetable(HABITUAL_WEEK, WEEK_DAYS)
+        friday = date(2026, 10, 9)
+        with tempfile.TemporaryDirectory() as tmp:
+            racine = self.project(tmp, data)
+            self.assertEqual(perso.build_segment(racine, {}, friday)[0], "Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h, en Studio B.")
+            self.assertEqual(perso.build_segment(racine, {"salle": "jamais"}, friday)[0], "Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h.")
+            self.assertEqual(perso.build_segment(racine, {"salle": "toujours"}, MON)[0], "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h, en salle 204.")
+            self.assertEqual(perso.build_segment(racine, {"salle": None}, MON)[0], "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h.")
+            self.assertEqual(perso.build_segment(racine, {"salle": " JAMAIS "}, MON)[0], "Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h.")
+
+
 if __name__ == "__main__":
     unittest.main()

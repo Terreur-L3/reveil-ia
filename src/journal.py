@@ -6,7 +6,7 @@ Usage :
     python -m src.journal --no-send     # essai : n'envoie rien dans Telegram
 
 Ce que le bot comprend : vocaux et textes (journal), images (emploi du temps, documents), et des ordres
-(/reveil, /cours, /consignes, /podcast…). Les ordres de réveil sont lus par des règles fixes, pas par une IA.
+(/reveil, /cours, /consignes, /moi, /podcast…). Les ordres de réveil sont lus par des règles fixes, pas par une IA.
 
 Codes de sortie : 0 = ok, 1 = Telegram ou Groq pas configurés, 2 = Telegram refuse (token ou webhook).
 Les textes de tes messages ne sont jamais écrits dans les logs.
@@ -14,12 +14,15 @@ Les textes de tes messages ne sont jamais écrits dans les logs.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import os
 import re
 import sys
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -28,10 +31,10 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import audio, edt, extract, github, inspi, llm, perso, perso_style, reglages, stt, telegram, triage, tts, vision
+from . import audio, contexte, edt, extract, github, inspi, llm, moi, perso, perso_style, reglages, stt, telegram, triage, tts, vision
 from .fr import MOIS, duree_fr, jour_court_fr
 from .main import load_env
-from .memoire import Memoire, mentions_perso, norm
+from .memoire import Memoire, guess_scope, mentions_perso, norm
 from .pacer import Pacer
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +49,8 @@ WELCOME = (
     "⏰ /reveil 6h30 : l'heure à laquelle ton podcast se lance. Tu peux aussi le dire : « mets mon réveil à 6h30 ».\n"
     "📌 Dis-moi comment tu veux que je te parle (« plus décontracté », « phrases courtes », « cite mes cours sans la salle »…), "
     "éventuellement selon les jours (« le week-end… ») : je le retiens. /consignes pour voir la liste.\n"
+    "📖 /moi : ton document de contexte — qui tu es, tes hobbies, tes goûts, comment je dois te parler… Tu le lis et le modifies ici, "
+    "ou en fichier : je m'en sers pour te parler et te poser des questions qui te ressemblent.\n"
     "💡 « 💡 Inspi » : je te pose une question quand tu manques d'inspiration.\n"
     "🎧 /podcast : je prépare le podcast tout de suite. 🧠 /memoire · ⚙️ /reglages\n\n"
     "Seul le texte est gardé, jamais l'audio ni les images. Je lis tes messages en général dans la demi-heure "
@@ -53,7 +58,8 @@ WELCOME = (
 )
 HELP_UNKNOWN = "Je ne connais pas cette commande. Tape /aide, ou utilise les boutons en bas."
 HELP_FILE = ("📎 Je sais lire les vocaux, les textes et les images (photo ou capture d'écran). "
-             "Pour un autre type de fichier (PDF…), envoie plutôt une capture d'écran.")
+             "Pour un autre type de fichier (PDF…), envoie plutôt une capture d'écran. "
+             "Un fichier .md, .txt ou .docx pour ton document de contexte : envoie-le avec la légende /moi.")
 HELP_REVEIL = ("Je n'ai pas compris l'heure. Exemples : /reveil 6h30 · /reveil 7h semaine · /reveil 9h week-end · "
                "/reveil demain 5h45 · /reveil off · /reveil on")
 SONNETTE_NOTE = ("ℹ️ Pour que le podcast se lance tout seul à l'heure exacte, il faut installer la « sonnette » "
@@ -67,6 +73,8 @@ class Out:
     audio: Path | None = None
     markup: dict | None = None
     on_sent: Callable[[dict], None] | None = None
+    document: Path | None = None          # un fichier à envoyer (le document de contexte) ; `text` en est la légende
+    fallback_text: str = ""               # envoyé à la place du fichier si Telegram le refuse
 
 
 @dataclass
@@ -233,6 +241,10 @@ def apply_spoken_durations(ctx: Ctx, text: str) -> bool:
 def apply_orders(ctx: Ctx, text: str, stamp: datetime) -> bool:
     """Les ordres du message (heure du réveil, durée du podcast par jour). Retourne True si le message n'était QUE cela :
     il n'entre alors pas dans le journal. Un message plus long est gardé, et ses ordres sont déjà pris en compte."""
+    if moi.spoken_add(ctx, text):                          # « ajoute à mon contexte que… » : le reste est la phrase à ranger
+        return True
+    if moi.spoken_view(ctx, text):                         # « montre-moi mon contexte », « envoie-moi mon document »
+        return True
     woke = apply_wake_orders(ctx, text, stamp)             # True : il y avait un ordre de réveil, et rien d'autre
     only_durations = apply_spoken_durations(ctx, text)     # True : il y avait un ordre de durée, et rien d'autre
     return woke or only_durations
@@ -241,7 +253,11 @@ def apply_orders(ctx: Ctx, text: str, stamp: datetime) -> bool:
 # --------------------------------------------------------------------------- extraction et accusé
 def _known_topics(ctx: Ctx) -> list[str]:
     data = ctx.mem.interests()
-    return [e["sujet"] for e in data["aime"] + data["candidats"]]
+    known = [e["sujet"] for e in data["aime"] + data["candidats"]]
+    doc = ctx.mem.contexte()
+    if doc is not None:       # les sujets de ton document ont déjà un libellé : on le reprend plutôt qu'un synonyme
+        known += [t["sujet"] for t in contexte.topics(doc) if norm(t["sujet"]) not in {norm(k) for k in known}]
+    return known
 
 
 def try_extract(ctx: Ctx, entry: dict) -> dict | None:
@@ -263,7 +279,7 @@ def try_extract(ctx: Ctx, entry: dict) -> dict | None:
             entry["texte"], entry_date=entry["date"], cfg=ctx.cfg, keys=ctx.keys, pacer=ctx.pacer,
             prenom=ctx.prenom, known_topics=_known_topics(ctx), question_text=question,
             resume_from=partial, on_progress=progress, deadline=ctx.deadline,
-            known_rules=[c["texte"] for c in ctx.mem.consignes()], allow_instructions=own_words,
+            known_rules=[c["texte"] for c in ctx.mem.all_consignes()], allow_instructions=own_words,
         )
     except extract.ExtractPause:
         log.info("Extraction en pause (temps écoulé) : reprise au prochain passage")
@@ -568,6 +584,10 @@ def memoire_text(ctx: Ctx) -> str:
     lines.append(f"• {s['repondues']} réponses à mes {s['questions']} questions")
     if s["consignes"]:
         lines.append(f"• {s['consignes']} consigne{'s' if s['consignes'] > 1 else ''} sur ta façon d'être servi (/consignes)")
+    doc = ctx.mem.contexte()
+    if doc is not None and contexte.count_items(doc):
+        lines.append(f"• 📖 ton document de contexte : {contexte.count_items(doc)} élément{'s' if contexte.count_items(doc) > 1 else ''} "
+                     f"dans {contexte.filled_sections(doc)} section{'s' if contexte.filled_sections(doc) > 1 else ''} (/moi)")
     courses = edt.count(edt.load(ctx.mem.p_edt))
     if courses:
         lines.append(f"• {courses} cours dans ton emploi du temps (/cours)")
@@ -577,26 +597,34 @@ def memoire_text(ctx: Ctx) -> str:
     if profile["source"] == "memoire":
         lines.append("📰 Pour choisir tes actus, je me base sur TA mémoire.")
     else:
-        missing = max(0, triage.MIN_APPRIS - len(s["aime"]))
+        missing = max(0, triage.MIN_APPRIS - int(profile.get("appris", len(s["aime"]))) - int(profile.get("document", 0)))
         lines.append(
             "📰 Pour tes actus, j'utilise encore la liste PROVISOIRE choisie par Claude. "
-            f"Il me manque {missing} centre{'s' if missing > 1 else ''} d'intérêt appris de tes messages pour passer sur ta mémoire."
+            f"Il me manque {missing} centre{'s' if missing > 1 else ''} d'intérêt, appris de tes messages ou écrit{'s' if missing > 1 else ''} "
+            "dans « Sujets qui m'intéressent » (/moi sujets), pour passer sur ta mémoire."
         )
     return "\n".join(lines)
 
 
 def settings_text(ctx: Ctx) -> str:
     courses = edt.count(edt.load(ctx.mem.p_edt))
-    consignes = len(ctx.mem.consignes())
+    consignes = len(ctx.mem.all_consignes())
+    doc = ctx.mem.contexte()
     lines = [
         "⚙️ Tes réglages", "",
         reglages.describe(ctx.settings, ctx.now),
         reglages.podcast_summary(ctx.settings, int(ctx.cfg.get("mots_cibles", 300))),
         f"📌 {consignes} consigne{'s' if consignes > 1 else ''} (/consignes)",
+        (f"📖 document de contexte : {contexte.count_items(doc)} élément{'s' if contexte.count_items(doc) > 1 else ''} (/moi)"
+         if doc is not None and contexte.count_items(doc) else "📖 document de contexte : vide pour l'instant (/moi)"),
         f"📅 emploi du temps : {courses} cours (/cours)" if courses else "📅 emploi du temps : pas encore (envoie une image, ou /cours)",
+    ]
+    if courses:
+        lines.append("🏫 " + reglages.SALLE_SENTENCES[reglages.salle_mode(ctx.settings)] + " (/cours salle)")
+    lines += [
         "",
         "Pour changer : /reveil 6h30 · /duree 3 (ou /duree 3 semaine 5 week-end) · /voix essai (écouter les voix) · "
-        "/vitesse lent, normal ou rapide · /consigne … · /cours · /perso (écouter comment je dis tes cours et rappels)",
+        "/vitesse lent, normal ou rapide · /consigne … · /moi (ton document de contexte) · /cours · /perso (écouter comment je dis tes cours et rappels)",
     ]
     if not sonnette_recent(ctx):
         lines += ["", SONNETTE_NOTE]
@@ -717,23 +745,9 @@ def cmd_vitesse(ctx: Ctx, args: str) -> None:
     _set_scoped(ctx, "vitesse", parsed)
 
 
-_SCOPE_LABEL = {"podcast": "le podcast", "questions": "mes questions", "perso": "mes infos perso (cours, anniversaires, rappels)",
-                "tout": "tout"}
-
-
-def _days_label(days: list[str]) -> str:
-    return reglages.days_phrase(tuple(reglages.DAYS.index(d) for d in days if d in reglages.DAYS))
-
-
-def _guess_scope(text: str) -> str:
-    low = norm(text)
-    if re.search(r"\b(question|questions|inspi)\b", low):
-        return "questions"
-    if mentions_perso(text):                    # « cite mes cours sans la salle » : la façon de dire tes infos perso
-        return "perso"
-    if re.search(r"\b(podcast|actu|actus|matin|nouvelles|journal)\b", low):
-        return "podcast"
-    return "tout"
+_SCOPE_LABEL = contexte.SCOPE_LABEL
+_days_label = contexte.days_label
+_guess_scope = guess_scope
 
 
 PERSO_PRIVACY_NOTE = ("ℹ️ Pour l'appliquer, je fais reformuler tes phrases perso (cours, anniversaires, rappels) par Groq, jamais par Gemini, "
@@ -741,7 +755,7 @@ PERSO_PRIVACY_NOTE = ("ℹ️ Pour l'appliquer, je fais reformuler tes phrases p
 
 
 def cmd_consignes(ctx: Ctx) -> None:
-    rules = ctx.mem.consignes()
+    rules = ctx.mem.all_consignes()
     if not rules:
         ctx.say("📌 Aucune consigne pour l'instant. Dis-moi par exemple « parle-moi de façon plus décontractée » "
                 "(message ou vocal), ou écris /consigne suivi de ce que tu veux.")
@@ -753,10 +767,13 @@ def cmd_consignes(ctx: Ctx) -> None:
         if c.get("portee", "tout") in ("podcast", "tout") and mentions_perso(c["texte"]):
             scope += " + mes infos perso"
         days = f" · {_days_label(c['jours'])}" if c.get("jours") else ""
-        lines.append(f"{n}. {c['texte']} — {scope}{days}{mark}")
+        book = " 📖" if c.get("source") == "contexte" else ""
+        lines.append(f"{n}. {c['texte']} — {scope}{days}{mark}{book}")
     lines += ["", "Pour en retirer une : /oublier 2 · pour en ajouter : /consigne … ou dis-le-moi simplement "
                   "(« le week-end, … » pour la limiter à certains jours).",
               "🔒 = personnelle : elle ne part jamais vers Gemini (seulement Groq)."]
+    if any(c.get("source") == "contexte" for c in rules):
+        lines.append("📖 = écrite dans ton document de contexte, section « Comment l'IA doit me parler » (/moi parler).")
     ctx.say("\n".join(lines))
 
 
@@ -788,14 +805,15 @@ def cmd_perso(ctx: Ctx, args: str, stamp: datetime) -> None:
     today = stamp.date()
     day = reglages.target_day(args, today) or today
     label = reglages.day_label(day, today)
-    segment = perso.build_segment_detail(ctx.racine, ctx.cfg.get("perso"), day)
+    segment = perso.build_segment_detail(ctx.racine, reglages.apply_to_cfg(ctx.cfg, ctx.settings, day).get("perso"), day)
     if not segment.text:
         ctx.say(f"🗣️ {label} : rien à dire (pas d'anniversaire, de rappel ni de cours ce jour-là).")
         return
     rules = ctx.mem.consignes_for("perso", allow_private=True, day=day) if (ctx.cfg.get("perso") or {}).get("style_ia", True) else []
     if not rules:
-        note = ("Aucune consigne sur tes infos perso : c'est le texte de base. Pour le changer, dis-moi par exemple "
-                "« cite mes cours sans la salle » ou écris /consigne cite mes cours sans la salle.")
+        note = ("Aucune consigne sur tes infos perso : c'est le texte de base. Pour la salle : /cours salle jamais (ou toujours). "
+                "Pour le reste, dis-moi par exemple « dis mes cours en commençant par l'heure » ou écris "
+                "/consigne dis mes cours en commençant par l'heure.")
         result = perso_style.Result(segment.text)
     else:
         result = perso_style.restyle(segment.text, rules, cfg=ctx.cfg, keys=ctx.keys, prenom=ctx.prenom,
@@ -812,11 +830,44 @@ def cmd_perso(ctx: Ctx, args: str, stamp: datetime) -> None:
 
 def cmd_oublier(ctx: Ctx, args: str) -> None:
     m = re.search(r"\d+", args or "")
-    gone = ctx.mem.remove_consigne(int(m.group(0))) if m else None
+    number = int(m.group(0)) if m else 0
+    chat_rules = len(ctx.mem.consignes())
+    if m and number > chat_rules:               # les consignes de ton document de contexte viennent après celles du chat
+        rules = ctx.mem.all_consignes()
+        if number <= len(rules):
+            rule = rules[number - 1]
+            doc = ctx.mem.contexte()
+            if rule.get("source") == "contexte" and doc is not None:
+                section = doc.sections[rule["section_index"]] if rule["section_index"] < len(doc.sections) else None
+                gone = contexte.remove_item(section, rule["item"]) if section is not None else None
+                if gone is not None:
+                    try:
+                        contexte.save(ctx.racine, doc)
+                    except (contexte.ContexteError, OSError) as exc:
+                        ctx.say(f"⚠️ Je n'ai pas pu modifier ton document ({exc}).")
+                        return
+                    ctx.say(f"🗑️ Consigne retirée de ton document (« {section.title} ») : « {gone} ». /moi annuler pour la remettre.")
+                    return
+        ctx.say("Dis-moi quelle consigne retirer : /consignes pour la liste, puis par exemple /oublier 2.")
+        return
+    gone = ctx.mem.remove_consigne(number) if m else None
     if gone:
         ctx.say(f"🗑️ Consigne retirée : « {gone['texte']} ».")
     else:
         ctx.say("Dis-moi quelle consigne retirer : /consignes pour la liste, puis par exemple /oublier 2.")
+
+
+def cmd_cours_salle(ctx: Ctx, rest: str) -> None:
+    """/cours salle jamais · toujours · auto : dire la salle des cours ou non (voir edt.py)."""
+    mode = reglages.parse_salle(rest) if rest.strip() else None
+    if mode is None:
+        ctx.say("🏫 " + reglages.SALLE_SENTENCES[reglages.salle_mode(ctx.settings)].capitalize() + ".\n"
+                "Pour changer : /cours salle jamais · /cours salle toujours · /cours salle auto "
+                "(auto : je ne la dis que si elle change, jamais « ma classe » ni ta salle habituelle).")
+        return
+    sentence = reglages.set_salle(ctx.settings, mode)
+    ctx.settings_changed = True
+    ctx.say(f"🔧 Réglé :\n• {sentence}\nÇa s'applique au prochain podcast (/perso pour l'écouter en texte tout de suite).")
 
 
 def cmd_cours(ctx: Ctx, args: str, stamp: datetime) -> None:
@@ -829,6 +880,19 @@ def cmd_cours(ctx: Ctx, args: str, stamp: datetime) -> None:
         edt.clear(data)
         edt.save(ctx.mem.p_edt, data)
         ctx.say("🗑️ Emploi du temps effacé. Renvoie une image ou écris /cours suivi de tes cours pour le refaire.")
+        return
+    room = re.match(r"^\s*salles?\b(.*)$", args, re.IGNORECASE | re.DOTALL)
+    if room and not re.search(r"\d", room.group(1)) and len(room.group(1).split()) <= 6:   # « /cours salle jamais », pas un horaire
+        cmd_cours_salle(ctx, room.group(1))
+        return
+    free = edt.parse_free_days(args)
+    if free:
+        recurring = not _THIS_WEEK_ONLY_RE.search(args)
+        edt.merge(data, [], free, week=None if recurring else edt.school_week(today), recurring=recurring, today=today)
+        edt.save(ctx.mem.p_edt, data)
+        names = reglages.days_phrase(tuple(edt.DAYS.index(d) for d in free))
+        scope = "chaque semaine" if recurring else "cette semaine seulement"
+        ctx.say(f"📅 Noté : pas de cours {names}, {scope}.\n\n" + edt.week_text(data, today))
         return
     try:
         reading = vision.read_text(args, now=ctx.now, cfg=ctx.cfg, keys=ctx.keys, prenom=ctx.prenom, pacer=ctx.pacer)
@@ -882,6 +946,23 @@ _BUTTON_COMMANDS = {
 }
 
 
+def _menu_signature() -> str:
+    return hashlib.sha1(json.dumps(telegram.COMMANDS, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def ensure_menu(ctx: Ctx) -> None:
+    """Installe le menu des commandes (la liste de « / ») si elle a changé depuis la dernière fois : après une mise à jour qui
+    ajoute une commande (/moi), plus besoin de renvoyer /start."""
+    signature = _menu_signature()
+    if ctx.state.get("menu") == signature:
+        return
+    try:
+        ctx.bot.set_commands()
+        ctx.state["menu"] = signature
+    except telegram.TelegramError as exc:
+        log.warning("Menu de commandes non installé : %s", exc)
+
+
 def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
     text = m.text.strip()
     stamp = _stamp(ctx, m.ts)
@@ -889,12 +970,14 @@ def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
     if text in _BUTTON_COMMANDS:
         command, args = _BUTTON_COMMANDS[text], ""
     else:
-        command, args = text.split()[0].lower().split("@")[0], text.partition(" ")[2].strip()
+        pieces = text.split(None, 1)            # le reste garde ses retours à la ligne (/moi ajouter, une ligne par élément)
+        command, args = pieces[0].lower().split("@")[0], (pieces[1].strip() if len(pieces) > 1 else "")
     if command in ("/start", "/aide", "/help"):
         ctx.say(WELCOME, markup=telegram.KEYBOARD)
         if command == "/start":
             try:
                 ctx.bot.set_commands()
+                ctx.state["menu"] = _menu_signature()
             except telegram.TelegramError as exc:
                 log.warning("Menu de commandes non installé : %s", exc)
     elif command == "/inspi":
@@ -911,6 +994,8 @@ def handle_command(ctx: Ctx, m: telegram.Incoming) -> None:
         cmd_voix(ctx, args)
     elif command == "/vitesse":
         cmd_vitesse(ctx, args)
+    elif command in ("/moi", "/contexte"):
+        moi.handle(ctx, args)
     elif command == "/consignes":
         cmd_consignes(ctx)
     elif command == "/consigne":
@@ -937,7 +1022,11 @@ def handle_message(ctx: Ctx, m: telegram.Incoming) -> None:
         enqueue_media(ctx, m)
         return
     if m.kind == "autre":
-        ctx.say(HELP_FILE)
+        ctx.stats["fichiers"] = ctx.stats.get("fichiers", 0) + 1
+        if moi.looks_like_context_file(m):
+            moi.import_file(ctx, m)
+        else:
+            ctx.say(HELP_FILE)
         return
     text = m.text.strip()
     if not text:
@@ -958,7 +1047,13 @@ def flush(ctx: Ctx) -> int:
             continue
         result = None
         try:
-            if out.audio is not None and out.audio.exists():
+            if out.document is not None and out.document.exists():
+                try:
+                    result = ctx.bot.send_document(out.document, caption=out.text)
+                except telegram.TelegramError as exc:
+                    log.warning("Envoi du document impossible (%s) : j'envoie le texte", exc)
+                    out = Out(out.fallback_text or out.text, markup=out.markup, on_sent=out.on_sent)
+            if result is None and out.audio is not None and out.audio.exists():
                 try:
                     result = ctx.bot.send_voice(out.audio, caption=out.text)
                 except telegram.TelegramError as exc:
@@ -1015,14 +1110,26 @@ def run(
             ctx.stats["alerte"] = "Telegram refuse le token du bot : vérifie le secret TELEGRAM_BOT_TOKEN."
         updates = []
 
+    from_you = 0                                     # les messages de TON chat (les autres sont ignorés sans bruit)
     for update in updates:
         state["offset"] = max(int(state["offset"]), int(update.get("update_id", 0)) + 1)
         m = telegram.normalize(update, bot.chat_id)
         if m is None:
             ctx.stats["ignores"] += 1
             continue
-        handle_message(ctx, m)
+        from_you += 1
+        try:
+            handle_message(ctx, m)
+        except Exception as exc:  # noqa: BLE001 - voulu : sans ça, Telegram redonne ce message à chaque passage, et chaque passage plante
+            frame = traceback.extract_tb(exc.__traceback__)[-1]      # jamais le texte de l'erreur : il pourrait contenir ton message
+            log.warning("Message laissé de côté après une erreur imprévue (%s, %s ligne %s)",
+                        exc.__class__.__name__, Path(frame.filename).name, frame.lineno)
+            ctx.stats["erreurs"] = ctx.stats.get("erreurs", 0) + 1
+            ctx.say("⚠️ Une erreur imprévue m'a empêché de traiter ton dernier message. Renvoie-le dans un moment ; "
+                    "si ça recommence, c'est un bug : dis-le-moi.")
 
+    if from_you and send:
+        ensure_menu(ctx)
     process_queue(ctx)
     retry_pending_extractions(ctx)
     maybe_question(ctx)

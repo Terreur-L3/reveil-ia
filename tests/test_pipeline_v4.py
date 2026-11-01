@@ -539,6 +539,80 @@ class TestTheNoteInTelegram(PersoCase):
         self.assertNotIn("consigne", self.caption())
 
 
+# =========================================================================== « il dit matin, après-midi et ma classe à chaque fois »
+class TestNoRepeatsInTheCourses(PersoCase):
+    """Le même cours du matin et de l'après-midi est dit une fois ; la salle ne l'est que si elle apprend quelque chose."""
+
+    def save_timetable(self, courses) -> None:
+        data = edt.empty()
+        data["semaine_type"]["lun"] = courses
+        edt.save(self.mem.p_edt, data)
+
+    def set_room_mode(self, mode: str) -> None:
+        data = self.mem.load_reglages()
+        reglages.set_salle(data, mode)
+        self.mem.save_reglages(data)
+
+    def one_course_all_day(self) -> None:
+        self.save_timetable([{"debut": "09:00", "fin": "12:30", "cours": "Lumière", "salle": "Ma classe"},
+                             {"debut": "14:00", "fin": "17:30", "cours": "Lumière", "salle": "Ma classe"}])
+
+    def test_the_course_is_said_once_and_my_class_is_not_said(self):
+        self.one_course_all_day()
+        self.generate()
+        spoken = self.spoken()
+        self.assertIn("Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30.", spoken)
+        self.assertEqual(spoken.count("Lumière"), 1)
+        self.assertNotIn("Ma classe", spoken)
+        self.assertEqual(self.restyle_calls(), [])                                          # aucune IA n'a été nécessaire
+        self.assertEqual(self.meta()["perso"], {"lignes": 1})
+
+    def test_a_rule_still_applies_to_the_merged_text(self):
+        self.one_course_all_day()
+        self.rule("dis mes cours en commençant par l'heure")
+        self.world.perso_fn = lambda prompt: "À 9 h, Lumière, jusqu'à 17 h 30."
+        self.generate()
+        self.assertIn("À 9 h, Lumière, jusqu'à 17 h 30.", self.spoken())
+        self.assertEqual(self.meta()["perso"], {"lignes": 1, "consignes": 1, "style": "applique"})
+        (call,) = self.restyle_calls()
+        self.assertIn("Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30.", call.plain)      # Groq reçoit déjà le texte sans redite
+        self.assertNotIn("Ma classe", call.plain)
+
+    def test_a_rewrite_that_loses_the_course_is_still_refused(self):
+        self.one_course_all_day()
+        self.rule("dis mes cours en commençant par l'heure")
+        self.world.perso_fn = lambda prompt: "À 9 h, tu as cours jusqu'à 17 h 30."
+        self.generate()
+        self.assertIn("Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30.", self.spoken())       # le texte sûr est dit
+        self.assertTrue(self.meta()["perso"]["style"].startswith("repli"))
+
+    def test_the_room_chosen_in_telegram_reaches_the_podcast(self):
+        self.save_timetable([{"debut": "09:00", "fin": "12:30", "cours": "Étalonnage", "salle": "204"},
+                             {"debut": "14:00", "fin": "17:00", "cours": "Prise de vue", "salle": "Studio B"}])
+        self.generate()
+        self.assertIn(BASE, self.spoken())                                                  # rien n'est caché tant que tu n'as rien demandé
+        self.set_room_mode("jamais")
+        self.generate()
+        spoken = self.spoken()
+        self.assertIn("Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h 30, puis Prise de vue de 14 h à 17 h.", spoken)
+        self.assertNotIn("salle 204", spoken)
+        self.assertNotIn("Studio B", spoken)
+        self.set_room_mode("toujours")
+        self.generate()
+        self.assertIn(BASE, self.spoken())
+
+    def test_the_room_rule_comes_before_any_rewrite(self):
+        self.save_timetable([{"debut": "09:00", "fin": "12:30", "cours": "Étalonnage", "salle": "204"},
+                             {"debut": "14:00", "fin": "17:00", "cours": "Prise de vue", "salle": "Studio B"}])
+        self.set_room_mode("jamais")
+        self.rule("parle de façon décontractée")
+        self.world.perso_fn = lambda prompt: "Ce matin, Étalonnage de 9 h à 12 h 30, puis Prise de vue de 14 h à 17 h."
+        self.generate()
+        (call,) = self.restyle_calls()
+        self.assertNotIn("salle 204", call.plain)                                            # Groq ne reçoit même pas la salle
+        self.assertNotIn("Studio B", call.plain)
+
+
 # =========================================================================== la sonnerie et reveil.mp3
 @needs_ffmpeg
 class TestAlarmFiles(PipelineCase):

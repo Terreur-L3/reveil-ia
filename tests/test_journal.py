@@ -847,7 +847,7 @@ class TestJournalCommands(JournalCase):
         self.assertEqual(rows, [[telegram.BTN_INSPI, telegram.BTN_MEMOIRE], [telegram.BTN_REVEIL, telegram.BTN_COURS]])
         (menu,) = self.world.sent("setMyCommands")
         self.assertEqual({c["command"] for c in menu["commands"]},
-                         {"inspi", "reveil", "cours", "podcast", "consignes", "reglages", "memoire", "aide"})
+                         {"inspi", "reveil", "cours", "podcast", "moi", "consignes", "reglages", "memoire", "aide"})
 
     def test_unknown_command(self):
         self.text("/zzz")

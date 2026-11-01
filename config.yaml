@@ -55,6 +55,16 @@ perso:
   consignes_dans_podcast: true   # tes consignes de style (/consignes) accompagnent l'écriture du podcast
   style_ia: true             # false = tes consignes ne s'appliquent pas à ces phrases : rien n'est envoyé à Groq
 
+# ----- Ton document de contexte : qui tu es, tes hobbies, tes goûts, comment l'IA doit te parler… -----
+# C'est le fichier memoire/contexte.md, que tu lis et modifies depuis Telegram (/moi). Les sections marquées 🔒 ne partent JAMAIS
+# vers Gemini : seul Groq les lit (questions « Inspi », rangement de tes phrases). Celles marquées 🌐 peuvent aider à écrire le
+# podcast, sauf les éléments sensibles (santé, argent, politique…), qui restent privés. /moi apercu montre ce que chaque IA reçoit.
+contexte:
+  dans_podcast: true         # false = tes sections 🌐 « libres » (hobbies, goûts…) n'accompagnent pas l'écriture du podcast
+                             # (tes consignes de style et tes sujets d'actus, eux, ont leurs propres réglages : perso / moi.yaml)
+  budget_partage: 900        # caractères de tes sections 🌐 libres envoyés à l'IA qui écrit le podcast (Gemini)
+  budget_prive: 3000         # caractères de ton document que Groq lit pour te poser de bonnes questions
+
 # ----- Réveil : le téléphone joue reveil.mp3 à l'heure choisie (/reveil dans Telegram) -----
 reveil:
   sonnerie: true             # reveil.mp3 = petite sonnerie + podcast (latest.mp3 = le podcast seul, envoyé dans Telegram)

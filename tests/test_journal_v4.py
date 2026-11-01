@@ -1061,6 +1061,136 @@ class TestCours(V4Case):
         self.assertEqual((text, n), ("Côté cours, aujourd'hui : Histoire du cinéma de 10 h à 12 h.", 1))
 
 
+# =========================================================================== modifier son emploi du temps depuis Telegram
+class TestCoursEditing(V4Case):
+    """La salle (/cours salle…) et un jour sans cours (/cours mardi pas de cours) : des règles fixes, sans IA."""
+
+    def week_in_the_same_room(self):
+        data = edt.empty()
+        for day, title, room in (("lun", "Étalonnage", "204"), ("mar", "Montage", "204"), ("mer", "Cadrage", "204"),
+                                 ("jeu", "Histoire du cinéma", "204"), ("ven", "Prise de vue", "Studio B")):
+            data["semaine_type"][day] = [{"debut": "09:00", "fin": "12:00", "cours": title, "salle": room}]
+        edt.save(self.mem.p_edt, data)
+
+    def groq_calls(self) -> int:
+        return len(self.world.calls("/groq/chat"))
+
+    # ----- /cours salle
+    def test_asking_shows_the_current_choice_and_changes_nothing(self):
+        (reply,) = self.say("/cours salle")
+        self.assertIn("🏫 Salle des cours : dite seulement quand elle change", reply)
+        self.assertIn("/cours salle jamais", reply)
+        self.assertNotIn("perso", self.raw_settings())
+
+    def test_never_say_the_room(self):
+        self.week_in_the_same_room()
+        (reply,) = self.say("/cours salle jamais")
+        self.assertIn("🔧 Réglé", reply)
+        self.assertIn("• salle des cours : jamais dite", reply)
+        self.assertEqual(self.raw_settings()["perso"], {"salle": "jamais"})
+        self.assertEqual(self.groq_calls(), 0)
+        friday = self.say("/perso vendredi")[0]
+        self.assertIn("« Côté cours, aujourd'hui : Prise de vue de 9 h à 12 h. »", friday)
+        self.assertNotIn("Studio B", friday)
+
+    def test_always_say_the_room_and_back_to_auto(self):
+        self.week_in_the_same_room()
+        monday = self.say("/perso demain")[0]
+        self.assertIn("« Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h. »", monday)               # auto : la salle habituelle se tait
+        self.say("/cours salle toujours")
+        self.assertIn("« Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h, en salle 204. »", self.say("/perso demain")[0])
+        self.say("/cours salle auto")
+        self.assertNotIn("perso", self.raw_settings())                                               # « auto » efface la clé
+        self.assertIn("« Côté cours, aujourd'hui : Étalonnage de 9 h à 12 h. »", self.say("/perso demain")[0])
+
+    def test_it_can_be_said_in_plain_words(self):
+        self.say("/cours salle ne la dis plus")
+        self.assertEqual(self.raw_settings()["perso"], {"salle": "jamais"})
+        self.say("/cours salle dis-la toujours")
+        self.assertEqual(self.raw_settings()["perso"], {"salle": "toujours"})
+
+    def test_a_choice_that_is_not_understood_is_explained_not_guessed(self):
+        self.say("/cours salle jamais")
+        (reply,) = self.say("/cours salle peut-être")
+        self.assertIn("Salle des cours : jamais dite", reply)
+        self.assertIn("/cours salle toujours", reply)
+        self.assertEqual(self.raw_settings()["perso"], {"salle": "jamais"})                         # rien n'a bougé
+
+    def test_the_settings_screen_shows_it_once_there_is_a_timetable(self):
+        self.assertNotIn("🏫", self.say("/reglages")[0])
+        self.week_in_the_same_room()
+        self.assertIn("🏫 salle des cours : dite seulement quand elle change", self.say("/reglages")[0])
+        self.say("/cours salle jamais")
+        self.assertIn("🏫 salle des cours : jamais dite (/cours salle)", self.say("/reglages")[0])
+
+    def test_a_timetable_that_starts_with_the_word_salle_is_still_read(self):
+        self.route_text_groq("Tu lis le texte", timetable_reading())
+        (reply,) = self.say("/cours salle 12 mardi 9h-12h montage")
+        self.assertIn("📅 J'ai lu ton texte", reply)
+        self.assertNotIn("perso", self.raw_settings())
+
+    def test_the_podcast_preview_explains_both_ways_to_change_how_it_is_said(self):
+        self.week_in_the_same_room()
+        reply = self.say("/perso demain")[0]
+        self.assertIn("Aucune consigne sur tes infos perso", reply)
+        self.assertIn("/cours salle jamais", reply)
+        self.assertIn("/consigne", reply)
+
+    def test_the_same_course_morning_and_afternoon_is_previewed_once(self):
+        data = edt.empty()
+        data["semaine_type"]["lun"] = [{"debut": "09:00", "fin": "12:30", "cours": "Lumière", "salle": "Ma classe"},
+                                       {"debut": "14:00", "fin": "17:30", "cours": "Lumière", "salle": "Ma classe"}]
+        edt.save(self.mem.p_edt, data)
+        reply = self.say("/perso demain")[0]
+        self.assertIn("« Côté cours, aujourd'hui : Lumière de 9 h à 17 h 30. »", reply)
+        self.assertNotIn("Ma classe", reply)
+
+    # ----- /cours mardi pas de cours
+    def test_a_free_day_is_noted_without_any_ai(self):
+        self.week_in_the_same_room()
+        before = self.groq_calls()
+        (reply,) = self.say("/cours mardi pas de cours")
+        self.assertTrue(reply.startswith("📅 Noté : pas de cours le mardi, chaque semaine."), reply)
+        self.assertIn("mardi 6 : pas de cours", reply)                                               # et la semaine est réaffichée
+        data = edt.load(self.mem.p_edt)
+        self.assertEqual(data["semaine_type"]["mar"], [])
+        self.assertEqual(len(data["semaine_type"]["lun"]), 1)                                        # les autres jours ne bougent pas
+        self.assertEqual(self.groq_calls(), before)
+        self.assertIn("Pas de cours aujourd'hui.", self.say("/perso mardi")[0])
+
+    def test_several_free_days_and_the_weekend(self):
+        self.week_in_the_same_room()
+        reply = self.say("/cours le mercredi et le vendredi : libre")[0]
+        self.assertIn("pas de cours le mercredi et le vendredi, chaque semaine", reply)
+        data = edt.load(self.mem.p_edt)
+        self.assertEqual((data["semaine_type"]["mer"], data["semaine_type"]["ven"]), ([], []))
+        self.assertIn("le week-end", self.say("/cours pas de cours le week-end")[0])
+        self.assertEqual(edt.load(self.mem.p_edt)["semaine_type"]["sam"], [])
+
+    def test_a_free_day_for_this_week_only_keeps_the_usual_week(self):
+        self.week_in_the_same_room()
+        (reply,) = self.say("/cours mardi pas de cours cette semaine seulement")
+        self.assertIn("pas de cours le mardi, cette semaine seulement", reply)
+        data = edt.load(self.mem.p_edt)
+        self.assertEqual(data["dates"]["2026-10-06"], [])                                            # ce mardi-là seulement
+        self.assertEqual(len(data["semaine_type"]["mar"]), 1)                                        # la semaine type garde son mardi
+
+    def test_a_text_that_also_gives_courses_goes_to_the_reader(self):
+        self.week_in_the_same_room()
+        self.route_text_groq("Tu lis le texte", timetable_reading(days=("lun", "mar")) | {"cours": [
+            {"jour": "lun", "debut": "09:00", "fin": "12:00", "intitule": "Étalonnage", "salle": "204", "enseignant": None}]})
+        before = self.groq_calls()
+        reply = self.say("/cours lundi 9h-12h étalonnage ; mardi pas de cours")[0]
+        self.assertIn("📅 J'ai lu ton texte", reply)
+        self.assertEqual(self.groq_calls(), before + 1)                                              # ici, c'est bien l'IA qui lit
+        self.assertEqual(edt.load(self.mem.p_edt)["semaine_type"]["mar"], [])
+
+    def test_erasing_everything_still_works(self):
+        self.week_in_the_same_room()
+        self.assertIn("🗑️ Emploi du temps effacé", self.say("/cours effacer")[0])
+        self.assertFalse(edt.known(edt.load(self.mem.p_edt)))
+
+
 # =========================================================================== /podcast
 class TestPodcastCommand(V4Case):
     def setUp(self):
@@ -1194,7 +1324,7 @@ class TestVoiceCommand(V4Case):
 class TestHelp(V4Case):
     def test_the_welcome_message_mentions_every_new_thing(self):
         (welcome,) = self.say("/start")
-        for expected in ("🖼️ Images", "/reveil 6h30", "/consignes", "/podcast", "/reglages", "« 💡 Inspi »", "jamais l'audio ni les images"):
+        for expected in ("🖼️ Images", "/reveil 6h30", "/consignes", "/podcast", "/reglages", "/moi", "« 💡 Inspi »", "jamais l'audio ni les images"):
             self.assertIn(expected, welcome)
         self.assertEqual(journal.WELCOME, welcome)
 

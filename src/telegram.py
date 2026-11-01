@@ -42,6 +42,7 @@ COMMANDS = [
     {"command": "reveil", "description": "Voir ou changer l'heure du réveil (ex. /reveil 6h30)"},
     {"command": "cours", "description": "Mon emploi du temps"},
     {"command": "podcast", "description": "Préparer le podcast maintenant"},
+    {"command": "moi", "description": "Mon document : qui je suis, ce que j'aime, comment me parler"},
     {"command": "consignes", "description": "Comment tu dois me parler"},
     {"command": "reglages", "description": "Tous mes réglages"},
     {"command": "memoire", "description": "Ce que tu as appris sur moi"},
@@ -274,6 +275,16 @@ class Bot:
             data["disable_notification"] = "true"  # arrive sans sonnerie : le réveil, lui, fait le bruit
         files = {"voice": (path.name, path.read_bytes(), "audio/mpeg" if path.suffix == ".mp3" else "audio/ogg")}
         return self._call("sendVoice", data=data, files=files, timeout=120) or {}
+
+    def send_document(self, path: Path | str, *, caption: str | None = None, filename: str | None = None) -> dict:
+        """Envoie un fichier texte (le document de contexte) : il s'ouvre dans Telegram et peut être enregistré."""
+        path = Path(path)
+        data = {"chat_id": str(self.chat_id)}
+        if caption:
+            data["caption"] = caption[:1000]
+        mime = "text/markdown" if path.suffix.lower() == ".md" else "text/plain"
+        files = {"document": (filename or path.name, path.read_bytes(), mime)}
+        return self._call("sendDocument", data=data, files=files, timeout=120) or {}
 
     def set_commands(self) -> None:
         self._call("setMyCommands", body={"commands": COMMANDS})

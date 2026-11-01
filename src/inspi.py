@@ -3,14 +3,17 @@
 Au début, les questions viennent d'une banque (elles servent à remplir la mémoire sur les bases).
 Dès que la mémoire contient assez d'infos, c'est l'IA (Groq, en privé) qui invente une question à partir
 de ce qu'elle sait de toi : un thème peu exploré, ou une suite à ce que tu as dit récemment.
+Ton document de contexte (contexte.py, /moi) compte comme de la mémoire : ce que tu y as écrit n'est pas redemandé, et
+l'IA le lit en entier (Groq seulement, jamais Gemini : les questions sont une affaire privée).
 """
 from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 
-from . import llm
+from . import contexte, llm
 from .fr import date_fr
 from .jsonutil import load_json
 from .memoire import Memoire, norm
@@ -77,7 +80,8 @@ def too_close(question: str, previous: list[str], threshold: float = 0.7) -> boo
 def pick_from_bank(mem: Memoire) -> dict | None:
     """La question de la banque jamais posée qui comble le thème le moins rempli de la mémoire."""
     asked = {q.get("banque_id") for q in mem.questions()}
-    counts = mem.stats()["categories"]
+    counts = Counter(mem.stats()["categories"])
+    counts.update(contexte.category_counts(mem.contexte()))      # ce que tu as déjà écrit dans ton document compte aussi
     best: tuple[int, int, tuple[str, str, str]] | None = None
     for order, item in enumerate(BANQUE):
         if item[0] in asked:
@@ -98,7 +102,12 @@ def ask_ai(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, pacer, 
     if consignes:
         system += "\n\nConsignes de " + (prenom or "la personne") + " sur la façon de lui poser des questions (à respecter) :\n" \
             + "\n".join(f"- {c}" for c in consignes[:8])
-    prompt = f"Moment : {date_fr(now)}, {now.hour} h.\n\n{mem.digest()}"
+    prompt = f"Moment : {date_fr(now)}, {now.hour} h.\n\n"
+    own = contexte.private_context(mem.contexte(), contexte.budgets(cfg)[1])
+    if own:   # ce que la personne a écrit de sa main : à respecter, et à ne pas lui redemander
+        prompt += (f"Le document de contexte de {prenom or 'la personne'}, écrit de sa main "
+                   f"(ne lui redemande pas ce qui s'y trouve déjà ; vas-y plus loin) :\n{own}\n\n")
+    prompt += mem.digest()
     if pending:
         prompt += f"\n\nLa dernière question est restée sans réponse : « {pending} » — pose-en une autre."
     chain = (cfg.get("llm") or {}).get("prive") or []
@@ -122,7 +131,8 @@ def ask_ai(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, pacer, 
 def make_question(mem: Memoire, cfg: dict, keys: dict[str, str], now: datetime, *, pacer=None,
                   prenom: str = "", pending: str = "", consignes: list[str] | None = None) -> dict:
     """Une question prête à poser : {texte, categorie, origine[, banque_id]}. Ne lève jamais d'exception."""
-    use_ai_first = mem.stats()["faits"] >= MIN_FACTS_FOR_AI
+    doc = mem.contexte()
+    use_ai_first = mem.stats()["faits"] + (contexte.count_items(doc) if doc is not None else 0) >= MIN_FACTS_FOR_AI
     if use_ai_first:
         q = ask_ai(mem, cfg, keys, now, pacer, prenom, pending, consignes)
         if q:

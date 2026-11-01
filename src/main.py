@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import jingle, llm, news, perso, perso_style, reglages, script_writer, triage, tts
+from . import contexte, jingle, llm, news, perso, perso_style, reglages, script_writer, triage, tts
 from .fr import count_words, date_fr
 from .memoire import Memoire
 
@@ -148,6 +148,13 @@ def generate(
         except Exception as exc:
             log.warning("Consignes ignorées : %s", exc)
 
+    shared = ""
+    if (cfg.get("contexte") or {}).get("dans_podcast", True):
+        try:  # les sections 🌐 de ton document de contexte (sans les éléments sensibles) aident à écrire avec ton ton
+            shared = contexte.shared_context(mem.contexte(), contexte.budgets(cfg)[0])
+        except Exception as exc:
+            log.warning("Document de contexte ignoré : %s", exc)
+
     profile = triage.load_profile(racine)
     prenom = profile.get("prenom") or str(cfg.get("prenom") or "").strip()
     style = perso_style.Result("")
@@ -181,6 +188,7 @@ def generate(
         script, model = script_writer.write_script(
             res.choices, cfg, keys, now,
             prenom=prenom, perso_text=perso_text, libre=res.libre, calme=res.calme, consignes=consignes,
+            contexte=shared,
         )
     except Exception as exc:
         raison = (" ; ".join(l.strip() for l in str(exc).splitlines() if l.strip()) or exc.__class__.__name__)[:300]
@@ -209,6 +217,7 @@ def generate(
         },
         "perso": {"lignes": n_perso, **({"consignes": style.rules, "style": style.status} if style.rules else {})},
         "consignes": len(consignes),
+        **({"contexte": len(shared)} if shared else {}),
         "origine": origine or "local",
         "audio": False,
     }

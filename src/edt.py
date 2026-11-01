@@ -10,14 +10,18 @@ Fichier : memoire/emploi_du_temps.yaml
       '2026-10-12': [...]
 
 Un jour absent veut dire « je ne sais pas » (le podcast n'en dit rien) ; un jour vide veut dire « pas de cours ».
-Le texte dit dans le podcast est fabriqué ICI, avec des modèles de phrases, sans IA. (Si tu as une consigne sur la façon de
-dire tes cours, perso_style.py le fait reformuler par Groq seul — jamais Gemini — puis contrôler : voir ce module.)
+Le texte dit dans le podcast est fabriqué ICI, avec des modèles de phrases, sans IA. Il évite les redites : un même cours
+en deux morceaux (matin et après-midi) n'est dit qu'une fois, et la salle n'est dite que si elle t'apprend quelque chose
+(pas « ma classe », pas la salle où se tiennent presque tous tes cours). (Si tu as une consigne sur la façon de dire tes
+cours, perso_style.py le fait reformuler par Groq seul — jamais Gemini — puis contrôler : voir ce module.)
 """
 from __future__ import annotations
 
 import os
 import re
 import unicodedata
+from collections import Counter
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -208,6 +212,37 @@ def merge(edt: dict, courses: list[dict], seen_days: list, *, week: date | None,
     return {"cours": sum(len(v) for v in by_day.values()), "jours": ordered, "semaine": week, "recurrent": recurring}
 
 
+# --------------------------------------------------------------------------- « mardi : pas de cours »
+_FREE_RE = re.compile(r"\b(?:pas de cours|aucun cours|plus de cours|sans cours|jour libre|libre|repos|rien)\b")
+_THIS_WEEK_RE = re.compile(r"cette semaine\s+(?:seulement|uniquement)|seulement cette semaine|juste cette semaine|exceptionnel(?:lement)?")
+_FR_DAYS = {"lundi": "lun", "lun": "lun", "mardi": "mar", "mar": "mar", "mercredi": "mer", "mer": "mer", "jeudi": "jeu", "jeu": "jeu",
+            "vendredi": "ven", "ven": "ven", "samedi": "sam", "sam": "sam", "dimanche": "dim", "dim": "dim"}
+_FREE_GLUE = {"le", "les", "la", "l", "du", "de", "des", "d", "tous", "toutes", "chaque", "et", "puis", "aussi", "ainsi", "que", "qu",
+              "est", "sont", "c", "ce", "cette", "il", "n", "y", "a", "jour", "jours", "en", "au", "aux", "mon", "ma", "mes", "end"}
+
+
+def parse_free_days(text) -> list[str] | None:
+    """« mardi pas de cours », « le mercredi et le vendredi : libre », « pas de cours le week-end » → ['mar'], ['mer', 'ven'],
+    ['sam', 'dim']. None si la phrase ne dit pas seulement ça (une heure, un cours, un mot inconnu) : c'est alors un emploi du
+    temps à lire."""
+    folded = _THIS_WEEK_RE.sub(" ", _fold(text))
+    if not _FREE_RE.search(folded):
+        return None
+    rest = _FREE_RE.sub(" ", folded)
+    if re.search(r"\d", rest):
+        return None
+    days: set[str] = set()
+    for word in re.findall(r"[a-z]+", rest):
+        key = word[:-1] if word.endswith("s") and word[:-1] in _FR_DAYS else word
+        if key in _FR_DAYS:
+            days.add(_FR_DAYS[key])
+        elif key in ("weekend", "week"):
+            days.update(("sam", "dim"))
+        elif key not in _FREE_GLUE:
+            return None
+    return [d for d in DAYS if d in days] or None
+
+
 def prune(edt: dict, today: date) -> None:
     limit = (today - timedelta(days=KEEP_DATED_DAYS)).isoformat()
     for key in [k for k in edt["dates"] if k < limit]:
@@ -252,36 +287,145 @@ def _room_spoken(room: str) -> str:
     return f"en salle {room}" if (room[0].isdigit() or len(room) <= 4) else f"en {room}"
 
 
-def _spoken_course(c: dict) -> str:
-    when = f"de {_fr_time(c['debut'])} à {_fr_time(c['fin'])}" if c.get("fin") else f"à {_fr_time(c['debut'])}"
-    room = _room_spoken(c.get("salle", ""))
-    return f"{c['cours']} {when}" + (f", {room}" if room else "")
+# Comment dire la salle : « auto » (seulement si elle t'apprend quelque chose), « toujours » ou « jamais ».
+ROOM_MODES = ("auto", "toujours", "jamais")
+LUNCH_GAP_MIN = 150        # deux morceaux du même cours séparés par moins que ça (la pause du midi) ne font qu'un cours
+USUAL_ROOM_SHARE = 0.7     # « ta salle habituelle » : celle où se tiennent au moins 70 % de tes cours…
+USUAL_ROOM_MIN = 3         # …quand au moins trois cours ont une salle
+
+_GENERIC_ROOM_WORDS = {"ma", "ta", "la", "notre", "en", "dans", "salle", "de", "classe", "habituelle", "habituel"}
+_PERIOD = r"(?:matin[ée]e|matin|apr[èe]s[\s-]?midi|aprem)"
+_PERIOD_PAREN_RE = re.compile(r"\s*[(\[]\s*(?:le\s+|l['’])?" + _PERIOD + r"\s*[)\]]", re.IGNORECASE)
+_PERIOD_PREFIX_RE = re.compile(r"^\s*" + _PERIOD + r"\s*[:/\-–—]\s*", re.IGNORECASE)
+_PERIOD_SUFFIX_RE = re.compile(r"\s*[:/\-–—]\s*" + _PERIOD + r"\s*$", re.IGNORECASE)
 
 
-def spoken(edt: dict, today: date) -> str:
-    """Les phrases du podcast sur les cours du jour (vide s'il n'y a rien d'utile à dire)."""
-    courses = courses_for(edt, today)
+def clean_title(title: str) -> str:
+    """« Lumière (matin) », « Après-midi : Lumière » → « Lumière » : l'heure dit déjà si c'est le matin ou l'après-midi."""
+    text = str(title or "")
+    cleaned = _PERIOD_PAREN_RE.sub("", text)
+    cleaned = _PERIOD_PREFIX_RE.sub("", cleaned)
+    cleaned = _PERIOD_SUFFIX_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—:/")
+    return cleaned if len(cleaned) >= 2 else text.strip()
+
+
+def is_generic_room(room: str) -> bool:
+    """« Ma classe », « En classe », « Salle de classe » : ce n'est pas un lieu qu'on a besoin d'entendre."""
+    words = re.findall(r"[a-z0-9]+", _fold(room))
+    return bool(words) and "classe" in words and set(words) <= _GENERIC_ROOM_WORDS
+
+
+def _room_key(room: str) -> str:
+    """Clé de comparaison : « Salle 204 », « salle 204 » et « 204 » sont la même salle."""
+    return re.sub(r"^(?:salle\s+|s\.\s*)", "", _fold(room)).strip()
+
+
+def usual_room(data: dict) -> str:
+    """La salle (clé de comparaison) où se tiennent presque tous tes cours, ou « » s'il n'y en a pas."""
+    counts: Counter = Counter()
+    for courses in data["semaine_type"].values():
+        for course in courses:
+            room = course.get("salle", "")
+            if room and not is_generic_room(room):
+                counts[_room_key(room)] += 1
+    total = sum(counts.values())
+    if total < USUAL_ROOM_MIN:
+        return ""
+    key, n = counts.most_common(1)[0]
+    return key if n >= total * USUAL_ROOM_SHARE else ""
+
+
+def _room_to_say(room: str, mode: str, usual: str) -> str:
+    if not room or mode == "jamais" or is_generic_room(room):
+        return ""
+    if mode == "auto" and usual and _room_key(room) == usual:
+        return ""
+    return _room_spoken(room)
+
+
+def _minutes(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+@dataclass
+class _Item:
+    title: str
+    room: str
+    spans: list[list]          # [[début, fin ou None], …] : un même cours peut avoir plusieurs morceaux dans la journée
+
+
+def _compatible_rooms(a: str, b: str) -> bool:
+    if not a or not b or is_generic_room(a) or is_generic_room(b):
+        return True
+    return _room_key(a) == _room_key(b)
+
+
+def _group(courses: list[dict]) -> list[_Item]:
+    """Les cours du jour, un par cours : le même cours en deux morceaux (matin, après-midi) n'est dit qu'une fois."""
+    items: list[_Item] = []
+    for course in courses:
+        title = clean_title(course["cours"])
+        room = course.get("salle", "")
+        last = items[-1] if items else None
+        if last is not None and _fold(last.title) == _fold(title) and _compatible_rooms(last.room, room):
+            if room and (not last.room or is_generic_room(last.room)):
+                last.room = room
+            span = last.spans[-1]
+            end = course.get("fin")
+            if span[1] and end and _minutes(course["debut"]) - _minutes(span[1]) <= LUNCH_GAP_MIN:
+                span[0], span[1] = min(span[0], course["debut"]), max(span[1], end)      # la pause du midi ne coupe pas le cours
+            else:
+                last.spans.append([course["debut"], end])
+            continue
+        items.append(_Item(title, room, [[course["debut"], course.get("fin")]]))
+    return items
+
+
+def _spans_text(spans: list[list]) -> str:
+    return ", puis ".join(f"de {_fr_time(a)} à {_fr_time(b)}" if b else f"à {_fr_time(a)}" for a, b in spans)
+
+
+def _spoken_item(item: _Item, mode: str, usual: str) -> str:
+    room = _room_to_say(item.room, mode, usual)
+    return f"{item.title} {_spans_text(item.spans)}" + (f", {room}" if room else "")
+
+
+def spoken_detail(data: dict, today: date, salle: str = "auto") -> tuple[str, list[str]]:
+    """(les phrases du podcast sur les cours du jour, les titres des cours cités). Vide s'il n'y a rien d'utile à dire.
+    `salle` : « auto » (dite seulement quand elle change), « toujours » ou « jamais »."""
+    courses = courses_for(data, today)
     if courses is None:
-        courses_tomorrow = courses_for(edt, today + timedelta(days=1)) if today.weekday() == 6 else None
-        return _sunday_hint(courses_tomorrow)
+        tomorrow = courses_for(data, today + timedelta(days=1)) if today.weekday() == 6 else None
+        return _sunday_hint(tomorrow), ([clean_title(tomorrow[0]["cours"])] if tomorrow else [])
     if not courses:
-        return "Pas de cours aujourd'hui." if today.weekday() < 5 else ""
-    if len(courses) == 1:
-        return f"Côté cours, aujourd'hui : {_spoken_course(courses[0])}."
-    if len(courses) <= MAX_LISTED:
-        items = [_spoken_course(c) for c in courses]
-        return "Côté cours, aujourd'hui : " + ", puis ".join(items) + "."
-    first, last_end = courses[0], max(c.get("fin") or c["debut"] for c in courses)
-    room = _room_spoken(first.get("salle", ""))
-    return (f"Aujourd'hui, tu as {len(courses)} cours, de {_fr_time(first['debut'])} à {_fr_time(last_end)}. "
-            f"Le premier : {first['cours']} à {_fr_time(first['debut'])}" + (f", {room}" if room else "") + ".")
+        return ("Pas de cours aujourd'hui." if today.weekday() < 5 else ""), []
+    mode = salle if salle in ROOM_MODES else "auto"
+    usual = usual_room(data) if mode == "auto" else ""
+    items = _group(courses)
+    titles = [item.title for item in items]
+    if len(items) == 1:
+        return f"Côté cours, aujourd'hui : {_spoken_item(items[0], mode, usual)}.", titles
+    if len(items) <= MAX_LISTED:
+        return "Côté cours, aujourd'hui : " + ", puis ".join(_spoken_item(i, mode, usual) for i in items) + ".", titles
+    first, last_end = items[0], max(c.get("fin") or c["debut"] for c in courses)
+    room = _room_to_say(first.room, mode, usual)
+    start = _fr_time(first.spans[0][0])
+    return (f"Aujourd'hui, tu as {len(items)} cours, de {start} à {_fr_time(last_end)}. "
+            f"Le premier : {first.title} à {start}" + (f", {room}" if room else "") + "."), titles
+
+
+def spoken(data: dict, today: date, salle: str = "auto") -> str:
+    """Les phrases du podcast sur les cours du jour (vide s'il n'y a rien d'utile à dire)."""
+    return spoken_detail(data, today, salle)[0]
 
 
 def _sunday_hint(courses_tomorrow: list[dict] | None) -> str:
     if not courses_tomorrow:
         return ""
     first = courses_tomorrow[0]
-    return f"Demain, ça reprend : premier cours à {_fr_time(first['debut'])}, {first['cours']}."
+    return f"Demain, ça reprend : premier cours à {_fr_time(first['debut'])}, {clean_title(first['cours'])}."
 
 
 def _line(c: dict) -> str:
@@ -317,8 +461,9 @@ def week_text(edt: dict, today: date) -> str:
     if not shown:
         lines.append("(rien de connu pour cette semaine : renvoie-moi l'image)")
     lines.append("")
-    lines.append("Pour corriger : renvoie une image plus nette (en fichier), ou écris /cours suivi des cours du jour à refaire. "
-                 "/cours effacer repart de zéro.")
+    lines.append("Pour corriger : renvoie une image plus nette (en fichier), ou écris /cours suivi de la journée à refaire "
+                 "(ex. /cours lundi 9h-17h lumière : ça remplace tout le lundi). /cours mardi pas de cours · "
+                 "/cours salle jamais · /cours effacer repart de zéro.")
     return "\n".join(lines)
 
 

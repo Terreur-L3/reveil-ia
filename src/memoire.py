@@ -9,6 +9,7 @@ memoire/
   rappels_auto.yaml            échéances entendues dans tes messages
   questions.jsonl              les questions « Inspi » posées, et à quelle entrée tu as répondu
   consignes.yaml               comment tu veux que je te parle (ton, longueur…), dit dans le chat
+  contexte.md                  ton document de contexte : qui tu es, tes hobbies, tes goûts, comment l'IA doit te parler… (/moi)
   reglages.json                l'heure du réveil, la durée et la voix du podcast (lu aussi par la sonnette)
   emploi_du_temps.yaml         tes cours, lus sur une photo ou écrits dans le chat
   _etat/telegram.json          où en est le bot (ne pas toucher)
@@ -77,6 +78,19 @@ def mentions_perso(text) -> bool:
     return bool(_PERSO_WORDS_RE.search(_NOT_A_COURSE_RE.sub(" ", norm(text))))
 
 
+def guess_scope(text: str) -> str:
+    """À quoi une consigne s'adresse-t-elle ? « questions » (Inspi), « perso » (tes cours, anniversaires, rappels),
+    « podcast » (actus, matin…) ou « tout »."""
+    low = norm(text)
+    if re.search(r"\b(question|questions|inspi)\b", low):
+        return "questions"
+    if mentions_perso(text):                    # « cite mes cours sans la salle » : la façon de dire tes infos perso
+        return "perso"
+    if re.search(r"\b(podcast|actu|actus|matin|nouvelles|journal)\b", low):
+        return "podcast"
+    return "tout"
+
+
 # --------------------------------------------------------------------------- fichiers
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,6 +156,7 @@ class Memoire:
         self.p_anniv = self.dir / "anniversaires_auto.yaml"
         self.p_rappels = self.dir / "rappels_auto.yaml"
         self.p_consignes = self.dir / "consignes.yaml"
+        self.p_contexte = self.dir / "contexte.md"
         self.p_reglages = self.dir / "reglages.json"
         self.p_edt = self.dir / "emploi_du_temps.yaml"
         self.p_etat = self.dir / "_etat" / "telegram.json"
@@ -350,6 +365,24 @@ class Memoire:
         _write_yaml(self.p_consignes, entries, _HEADER_CONSIGNES)
         return gone
 
+    # ----- ton document de contexte (contexte.py) : sa section « Comment l'IA doit me parler » compte comme des consignes
+    def contexte(self):
+        """Le document de contexte (None s'il n'existe pas ou s'il est illisible : il ne doit jamais bloquer le reste)."""
+        from . import contexte   # import tardif : contexte importe déjà ce module
+
+        return contexte.load_quietly(self.racine)
+
+    def doc_rules(self, doc=None) -> list[dict]:
+        """Les consignes écrites dans le document de contexte (même forme que celles de consignes.yaml, avec source « contexte »)."""
+        from . import contexte
+
+        doc = doc if doc is not None else self.contexte()
+        return contexte.style_rules(doc) if doc is not None else []
+
+    def all_consignes(self) -> list[dict]:
+        """Les consignes dites dans le chat (consignes.yaml), puis celles du document de contexte : la liste de /consignes."""
+        return self.consignes() + self.doc_rules()
+
     def consignes_for(self, scope: str, *, allow_private: bool, day: date | None = None) -> list[str]:
         """Les consignes qui concernent « podcast », « questions » ou « perso » (la façon de citer tes cours, anniversaires
         et rappels). Celles de portée « tout » comptent pour podcast et questions.
@@ -362,7 +395,7 @@ class Memoire:
         from .extract import is_sensitive  # import tardif : extract importe déjà ce module
 
         out = []
-        for c in self.consignes():
+        for c in self.all_consignes():
             portee = c.get("portee", "tout")
             if scope == "perso":
                 if not (portee == "perso" or (portee in ("podcast", "tout") and mentions_perso(c["texte"]))):
@@ -467,7 +500,7 @@ class Memoire:
             "evite": interets["evite"],
             "questions": len(questions),
             "repondues": sum(1 for q in questions if q.get("repondue_par")),
-            "consignes": len(self.consignes()),
+            "consignes": len(self.all_consignes()),
         }
 
     def digest(self, recent_facts: int = 15, recent_entries: int = 5, recent_questions: int = 12) -> str:

@@ -13,6 +13,7 @@ Cloudflare qui déclenche le podcast à l'heure exacte), donc son format est vol
       },
       "podcast": {"minutes": null, "voix": null, "vitesse": null,      # réglages « tous les jours »…
                   "jours": {"sam": {"minutes": 5}, "dim": {"minutes": 5}}},   # …et ceux d'un jour précis (clé absente si aucun)
+      "perso": {"salle": "jamais"},                                     # clé absente = réglage par défaut (« auto »)
       "sonnette_vue": "",
       "journal_offset": 0                                               # jusqu'où le journal a lu Telegram (sert à la sonnette)
     }
@@ -132,6 +133,9 @@ def normalize(data) -> dict:
                         clean[d] = valid
             if clean:   # la clé n'existe que s'il y a quelque chose : le format reste celui d'avant pour qui n'en a pas besoin
                 out["podcast"]["jours"] = clean
+    perso = data.get("perso")
+    if isinstance(perso, dict) and perso.get("salle") in ("toujours", "jamais"):
+        out["perso"] = {"salle": perso["salle"]}     # « auto » est le réglage par défaut : la clé n'existe que s'il est changé
     out["sonnette_vue"] = str(data.get("sonnette_vue") or "")
     offset = data.get("journal_offset")
     if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0:
@@ -865,7 +869,8 @@ def podcast_summary(settings: dict, default_words: int = 300) -> str:
 
 def apply_to_cfg(cfg: dict, settings: dict, day: date | None = None) -> dict:
     """Copie de la config où tes réglages remplacent ceux de config.yaml. `day` : le jour du podcast, pour que les
-    réglages « en semaine » / « le week-end » / « le lundi »… s'appliquent (sans lui, seuls les réglages de tous les jours)."""
+    réglages « en semaine » / « le week-end » / « le lundi »… s'appliquent (sans lui, seuls les réglages de tous les jours).
+    Le réglage de la salle des cours (/cours salle) passe aussi par ici."""
     out = copy.deepcopy(cfg)
     p = podcast_for(settings, day)
     if p["minutes"]:
@@ -883,7 +888,58 @@ def apply_to_cfg(cfg: dict, settings: dict, day: date | None = None) -> dict:
                 voix["moteur"] = "edge"
     if p["vitesse"]:
         voix["vitesse"] = p["vitesse"]
+    mode = salle_mode(settings)
+    if mode != "auto":      # « /cours salle jamais » l'emporte sur config.yaml ; « auto » laisse config.yaml décider
+        out["perso"] = {**(out.get("perso") or {}), "salle": mode}
     return out
+
+
+# --------------------------------------------------------------------------- la salle des cours
+SALLE_MODES = ("auto", "toujours", "jamais")
+SALLE_SENTENCES = {
+    "auto": "salle des cours : dite seulement quand elle change (jamais « ma classe » ni ta salle habituelle)",
+    "toujours": "salle des cours : toujours dite",
+    "jamais": "salle des cours : jamais dite",
+}
+_SALLE_AUTO_RE = re.compile(r"\b(?:auto|automatique|automatiquement|change|changent|changement|differente?s?|habituelle?|normal|defaut|"
+                            r"pas toujours|que si)\b")
+_SALLE_NEVER_RE = re.compile(r"\b(?:jamais|off|non|sans|plus|aucune?|pas|desactive\w*|coupe\w*|supprime\w*|retire\w*|enleve\w*|"
+                             r"tais|tait)\b")
+_SALLE_ALWAYS_RE = re.compile(r"\b(?:toujours|tout le temps|chaque|on|oui|avec|active\w*|dis|dire|donne|garde)\b")
+
+
+def parse_salle(text: str) -> str | None:
+    """« jamais », « sans », « ne la dis plus » → « jamais » ; « toujours », « avec » → « toujours » ; « auto »,
+    « seulement si elle change », « pas toujours » → « auto ». None si on ne comprend pas. Une négation l'emporte sur
+    « dis » (« ne la dis plus » = jamais)."""
+    folded = _fold(text)
+    if _SALLE_AUTO_RE.search(folded):
+        return "auto"
+    if _SALLE_NEVER_RE.search(folded):
+        return "jamais"
+    if _SALLE_ALWAYS_RE.search(folded):
+        return "toujours"
+    return None
+
+
+def salle_mode(settings: dict) -> str:
+    """Comment dire la salle des cours : « auto » (par défaut), « toujours » ou « jamais »."""
+    mode = (settings.get("perso") or {}).get("salle")
+    return mode if mode in SALLE_MODES else "auto"
+
+
+def set_salle(settings: dict, mode: str) -> str:
+    """Change la façon de dire la salle et retourne la phrase qui le dit."""
+    if mode not in SALLE_MODES:
+        raise ValueError(mode)
+    perso = settings.setdefault("perso", {})
+    if mode == "auto":
+        perso.pop("salle", None)
+    else:
+        perso["salle"] = mode
+    if not perso:
+        settings.pop("perso", None)          # la clé n'existe que s'il y a quelque chose : le format reste celui d'avant
+    return SALLE_SENTENCES[mode]
 
 
 # --------------------------------------------------------------------------- « en semaine », « le week-end », « le lundi »…

@@ -6,8 +6,10 @@ Aucune donnée perso n'intervient dans cette étape : seulement des titres de pr
 
 D'où viennent les centres d'intérêt ?
   1. ceux que tu épingles toi-même dans moi.yaml ;
-  2. ceux que la mémoire a appris de ton journal vocal (memoire/interets.yaml) ;
-  3. tant que la mémoire est trop maigre : une liste PROVISOIRE de départ (moi.yaml → provisoires).
+  2. ceux que tu écris dans ton document de contexte (memoire/contexte.md, sections 🌐 « Sujets qui m'intéressent »,
+     « Sujets à éviter » et « Toujours important pour moi » : /moi dans Telegram) ;
+  3. ceux que la mémoire a appris de ton journal vocal (memoire/interets.yaml) ;
+  4. tant que tout cela est trop maigre : une liste PROVISOIRE de départ (moi.yaml → provisoires).
 """
 from __future__ import annotations
 
@@ -21,9 +23,10 @@ from pathlib import Path
 
 import yaml
 
-from . import llm
+from . import contexte, llm
 from .fr import date_fr
 from .jsonutil import load_json
+from .memoire import norm
 from .news import Item
 
 log = logging.getLogger(__name__)
@@ -138,7 +141,8 @@ def _texts(raw, default: list[str]) -> list[str]:
 
 
 def load_profile(racine: Path) -> dict:
-    """Profil de lecture : sujets épinglés + sujets appris par la mémoire (sinon sujets provisoires)."""
+    """Profil de lecture : sujets épinglés + sujets de ton document de contexte + sujets appris par la mémoire
+    (sinon sujets provisoires). Du document, seules les sections 🌐 servent ici (une section 🔒 ne part jamais vers Gemini)."""
     racine = Path(racine)
     moi = _read_yaml(racine / "moi.yaml")
     moi = moi if isinstance(moi, dict) else {}
@@ -149,21 +153,50 @@ def load_profile(racine: Path) -> dict:
     learned = _topics(appris.get("aime"))
     avoided = _texts(appris.get("evite"), [])  # sujets que ton journal a appris à éviter
 
-    if len(learned) >= MIN_APPRIS:
-        topics = pinned + learned
-        source = "memoire"
-        origine = f"mémoire ({len(learned)} sujets appris)" + (f" + {len(pinned)} épinglés" if pinned else "")
+    doc = contexte.load_quietly(racine)
+    wrote = contexte.topics(doc) if doc is not None else []            # ce que tu as écrit dans « Sujets qui m'intéressent »
+    own_avoid = contexte.avoid(doc) if doc is not None else []         # … « Sujets à éviter »
+    own_important = contexte.important(doc) if doc is not None else [] # … « Toujours important pour moi »
+    if wrote or own_avoid:
+        refused = {norm(a) for a in own_avoid}                         # un sujet à éviter ne peut pas être aussi un sujet aimé
+        taken = {norm(t["sujet"]) for t in pinned}
+        wrote = [t for t in wrote if norm(t["sujet"]) not in refused and norm(t["sujet"]) not in taken]
+        written = {norm(t["sujet"]) for t in wrote}
+        kept = [t for t in learned if norm(t["sujet"]) not in refused and norm(t["sujet"]) not in written]
     else:
-        topics = pinned + learned + provisional
+        kept = learned
+
+    if len(kept) + len(wrote) >= MIN_APPRIS:
+        topics = pinned + wrote + kept
+        source = "memoire"
+        parts = []
+        if kept or not wrote:
+            parts.append(f"mémoire ({len(kept)} sujets appris)")
+        if wrote:
+            parts.append(f"ton document de contexte ({len(wrote)} sujets)")
+        if pinned:
+            parts.append(f"{len(pinned)} épinglés")
+        origine = " + ".join(parts)
+    else:
+        topics = pinned + wrote + kept + provisional
         source = "provisoire"
         origine = "PROVISOIRE (choisi par Claude, pas par ta mémoire) : le journal vocal n'a pas encore assez appris"
+        if wrote:
+            origine += f" (+ {len(wrote)} sujet{'s' if len(wrote) > 1 else ''} de ton document de contexte)"
+
+    important = _texts(moi.get("toujours_important"), DEFAULT_IMPORTANT)
+    important += [t for t in own_important if norm(t) not in {norm(i) for i in important}]
+    ignore = _texts(moi.get("a_ignorer"), DEFAULT_IGNORER) + avoided
+    ignore += [t for t in own_avoid if norm(t) not in {norm(i) for i in ignore}]
     return {
         "prenom": str(moi.get("prenom") or "").strip(),
         "priorites": topics,
-        "toujours_important": _texts(moi.get("toujours_important"), DEFAULT_IMPORTANT),
-        "a_ignorer": _texts(moi.get("a_ignorer"), DEFAULT_IGNORER) + avoided,
+        "toujours_important": important,
+        "a_ignorer": ignore,
         "origine": origine,
         "source": source,
+        "appris": len(kept),
+        "document": len(wrote),
     }
 
 

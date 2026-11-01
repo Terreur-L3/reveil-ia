@@ -5,7 +5,8 @@ Trois choses qui s'alimentent les unes les autres, toutes gratuites :
 1. **Le journal vocal** : tu parles (ou tu écris, ou tu envoies une photo) à ton bot Telegram, de 30 secondes à plus
    d'une heure. Il transcrit, retient ce qui compte (anniversaires, échéances, projets, goûts, **cours**…) et te pose des
    questions quand tu n'as plus d'inspiration (bouton **💡 Inspi**). Tu lui dis aussi **comment te parler**
-   (« plus décontracté », « phrases courtes »…) et **à quelle heure te réveiller**.
+   (« plus décontracté », « phrases courtes »…) et **à quelle heure te réveiller**. Tu tiens aussi un **document de
+   contexte** (qui tu es, tes hobbies, tes goûts, comment l'IA doit te parler…) que tu lis et modifies depuis Telegram.
 2. **Le podcast du matin** (~2 min, ton positif, jamais dramatique) : les actus qui comptent et qui t'intéressent, puis
    tes infos perso (anniversaires, rappels, **tes cours du jour**). Il arrive chaque matin dans la conversation Telegram.
 3. **Le réveil** : une petite sonnerie d'environ 10 secondes, puis le podcast se lit tout seul, **à l'heure exacte** que
@@ -15,7 +16,8 @@ Trois choses qui s'alimentent les unes les autres, toutes gratuites :
 TOI (Telegram) ─ vocal / texte / photo / « 💡 Inspi » / « mets mon réveil à 6h30 » ─►  JOURNAL  (GitHub Actions)
                                                       Groq Whisper : transcription      toutes les 30 min, ou dans la
                                                       Groq (IA)    : extraction, vision  minute avec la sonnette
-                                                      └─► memoire/  (fichiers lisibles, dans ton dépôt privé)
+                                                      └─► memoire/  (fichiers lisibles, dans ton dépôt privé,
+                                                           dont contexte.md : ton document, modifiable par /moi)
                  ◄─ « ✅ Noté… » / « ⏰ Réveil en semaine : 6 h 30 » / « 📅 J'ai lu ton emploi du temps… »
 
                                                       PODCAST DU MATIN  (GitHub Actions)
@@ -33,8 +35,8 @@ SONNETTE  (Cloudflare Workers, une fois par minute)
 ```
 
 **Qui choisit tes actus ?** Au début, une liste *provisoire* choisie par Claude (fichier `moi.yaml`). Dès que ton
-journal a appris au moins **3** de tes centres d'intérêt, cette liste est abandonnée toute seule et c'est TA mémoire
-qui décide. Le fichier `choix.txt` (branche `podcast`) dit toujours laquelle est utilisée et pourquoi chaque actu
+journal a appris au moins **3** de tes centres d'intérêt (ou que tu en as écrit dans ton document de contexte, section
+« Sujets qui m'intéressent »), cette liste est abandonnée toute seule et c'est TA mémoire qui décide. Le fichier `choix.txt` (branche `podcast`) dit toujours laquelle est utilisée et pourquoi chaque actu
 est passée ou non.
 
 ---
@@ -47,28 +49,33 @@ Tu peux t'arrêter après la 7 : le podcast t'attend alors dans Telegram, et la 
 
 ### Étape 0 — Mettre le dépôt à jour (Termux)
 
-Le zip de mise à jour (`reveil-ia-v6-maj.zip`) ne contient **que ce qui change** : il ne touche ni à ta mémoire, ni à ton
-`moi.yaml`, ni à ton `config.yaml` (deux petits outils en mettent à jour seulement les sections voix et perso), ni à
-`extras/sonnette/` (ton `worker.js`, ton `wrangler.toml` avec tes identifiants Cloudflare et ton déploiement automatique
-restent tels quels).
+Le zip de mise à jour (`reveil-ia-v8-maj.zip`) ne contient **que le programme** : il ne touche ni à ta mémoire (ton document
+de contexte compris), ni à ton `moi.yaml`, ni à ton `config.yaml` (de petits outils en mettent à jour seulement les sections
+voix, perso et contexte), ni à `extras/sonnette/` (ton `worker.js`, ton `wrangler.toml` avec tes identifiants Cloudflare et
+ton déploiement automatique restent tels quels). Il remplace la v7 et en contient tout : si tu n'avais pas encore appliqué
+la v7, celui-ci suffit.
 
 ```
 cd ~/storage/shared/Scripts/reveil-ia && git pull --rebase origin main        # 1. récupère d'abord ce que le robot a pu écrire
-cd .. && unzip -o reveil-ia-v6-maj.zip                                         # 2. dézippe par-dessus (le zip est dans « Scripts »)
-cd reveil-ia && python3 outils/maj_config_perso.py                             # 3. corrige la section perso de TON config.yaml
-git add -A && git commit -m "v6 : réglages par jour, consignes sur tes cours" && git push   # 4. envoie
+cd .. && unzip -o reveil-ia-v8-maj.zip                                         # 2. dézippe par-dessus (le zip est dans « Scripts »)
+cd reveil-ia && python3 outils/maj_config_perso.py && python3 outils/maj_config_contexte.py   # 3. complète TON config.yaml
+git add -A && git commit -m "v8 : document de contexte (/moi)" && git push     # 4. envoie
 ```
 
 Fais toujours le `git pull --rebase` **avant** de dézipper : le robot enregistre ta mémoire dans le dépôt, donc le
 dépôt change même quand tu n'y touches pas. (`unzip` introuvable ? `pkg install unzip`. `python3` introuvable ?
-`pkg install python`. Le `pull` se plaint de « unstaged changes » ? Fais d'abord `git add -A && git commit -m "avant v6"`,
-puis recommence. Le `push` répond « without `workflow` scope » ? Voir « Si ça coince » : cette mise à jour modifie un
-fichier de `.github/workflows/`.)
+`pkg install python`. Le `pull` se plaint de « unstaged changes » ? Fais d'abord `git add -A && git commit -m "avant v8"`,
+puis recommence. Le `push` répond « without `workflow` scope » ? Voir « Si ça coince » : la v8 ne modifie aucun fichier de
+`.github/workflows/` si tu as déjà la v7 ; si tu partais de plus loin, c'est la v7 qui en modifiait un.)
 
-L'étape 3 sauvegarde ton ancien fichier dans `config.yaml.avant-perso`, remplace le commentaire « jamais envoyées à une IA »
-(devenu inexact, voir « Confidentialité ») et ajoute la ligne `style_ia: true` ; rien d'autre ne change, et elle est sans
-danger si tu la relances. Elle est facultative : sans elle, tout marche pareil. (Tu n'as jamais lancé la v5 ? Lance aussi
-`python3 outils/maj_config_voix.py`, qui active la voix réaliste.)
+L'étape 3 sauvegarde ton ancien fichier (`config.yaml.avant-perso`, `config.yaml.avant-contexte`), remplace le commentaire
+« jamais envoyées à une IA » (devenu inexact, voir « Confidentialité »), ajoute la ligne `style_ia: true` et le petit bloc
+`contexte:` ; rien d'autre ne change, et elle est sans danger si tu la relances. Elle est facultative : sans elle, tout
+marche pareil. (Tu n'as jamais lancé la v5 ? Lance aussi `python3 outils/maj_config_voix.py`, qui active la voix réaliste.)
+
+**Nouveau dans la v8 :** tape `/moi` dans Telegram. Le bot te présente ton document de contexte (vide au départ) et comment
+le remplir (voir « Ton document de contexte »). Le menu des commandes de Telegram (la liste qui s'ouvre avec « / ») se met à
+jour tout seul, au premier message que tu envoies après la mise à jour : pas besoin de renvoyer `/start`.
 
 ### Étape 1 — Clé Groq (gratuite)
 
@@ -118,6 +125,9 @@ dans Telegram, relance, et au besoin lis la section « Si ça coince ».
    `✅ Noté (45 s de vocal)` et liste ce qu'il a retenu (anniversaires 🎂, rappels 🔔, centres d'intérêt ⭐).
 3. Appuie sur **💡 Inspi** : au prochain passage, il te pose une question (écrite **et** dite à voix haute).
    Réponds à la voix ou par écrit : ta réponse est rangée dans la mémoire comme le reste.
+4. Pour qu'il te connaisse vraiment : **/moi**. C'est ton document de contexte (qui tu es, tes hobbies, tes goûts, les
+   gens qui comptent, comment te parler…). Écris par exemple `/moi j'adore la pêche à la cuillère ; tutoie-moi` : il range
+   chaque info dans la bonne section. Tout est expliqué dans « Ton document de contexte ».
 
 ### Étape 6 — Essaie le podcast
 
@@ -250,15 +260,17 @@ de la veille. Ça ne se reproduit plus ensuite.
 | Vocal de 30 s à ~1 h 30 (ou texte) | Transcrit, rangé dans `memoire/`, accusé « ✅ Noté » avec ce qui a été retenu |
 | Photo / capture / fichier image | Lu par Groq (vision) : emploi du temps → tes cours ; autre document → texte rangé dans le journal |
 | **💡 Inspi** (ou `/inspi`) | Une question adaptée à ce qu'il sait de toi, écrite + vocale. Ta réponse enrichit la mémoire |
-| **🧠 Mémoire** (ou `/memoire`) | Ce qu'il a appris, tes centres d'intérêt, tes consignes, ton emploi du temps |
+| **🧠 Mémoire** (ou `/memoire`) | Ce qu'il a appris, tes centres d'intérêt, tes consignes, ton emploi du temps, la taille de ton document de contexte |
 | **⏰ Réveil** (ou `/reveil`) | Ton horaire et le prochain réveil. `/reveil 6h30 semaine` pour le changer |
-| **📅 Cours** (ou `/cours`) | Ton emploi du temps de la semaine. `/cours lundi 9h-12h étalonnage salle 204` pour l'écrire à la main ; `/cours effacer` |
+| **📅 Cours** (ou `/cours`) | Ton emploi du temps de la semaine. `/cours lundi 9h-12h étalonnage salle 204` pour refaire un jour ; `/cours mardi pas de cours` ; `/cours salle jamais` ; `/cours effacer` (voir « Modifier ton emploi du temps ») |
 | `/podcast` | Prépare le podcast tout de suite (une fois toutes les 10 minutes au plus) |
 | `/duree 3` · `/voix sulafat` · `/vitesse lent` | Longueur du podcast (1 à 8 min), voix (voir « Une voix réaliste » ci-dessous), vitesse (lent, normal, rapide ou `-15%`). Différent selon les jours : `/duree 3 semaine 5 week-end` |
 | `/voix essai` | Je t'envoie quelques échantillons de voix réalistes à écouter (`/voix essai puck zephyr` pour choisir lesquelles) |
+| **📖 `/moi`** | Ton **document de contexte** : le sommaire. `/moi hobbies` (une section) · `/moi ajouter hobbies : la pêche` · `/moi j'adore le cinéma` (je choisis la section) · `/moi fichier` · `/moi apercu` · `/moi annuler` (voir « Ton document de contexte ») |
+| « Ajoute à mon contexte que… » · « Montre-moi mon contexte » · « Envoie-moi mon document de contexte » (texte ou vocal) | Comme `/moi ajouter…`, `/moi` et `/moi fichier`. Rien de tout ça n'entre dans le journal |
 | `/consigne phrases courtes` · `/consignes` · `/oublier 2` | Ajouter, lister, retirer une consigne de comportement. Pour certains jours : `/consigne le week-end, parle plus décontracté` |
 | `/perso demain` | T'écrit comment tes cours, anniversaires et rappels de demain seront dits, avec tes consignes (voir « Tes consignes ») |
-| `/reglages` | Tous tes réglages d'un coup (réveil, podcast, consignes, emploi du temps) |
+| `/reglages` | Tous tes réglages d'un coup (réveil, podcast, consignes, emploi du temps, document de contexte) |
 | `/aide` | Rappel des fonctions |
 | Rien pendant la journée | Entre 19 h et 23 h : une question du soir (une fois par jour, jamais deux à moins de 4 h d'écart). Réglable : `heure_question` dans `config.yaml` |
 | « Je ne veux plus entendre parler de… » | Le sujet est noté comme à éviter dans les actus |
@@ -361,13 +373,137 @@ jours sauf le dimanche »), « à partir de lundi », ou plusieurs heures dont o
   légende comme « groupe B » aide à ne garder que ton groupe. Si l'image affiche les dates de la semaine, il les lit et
   les garde. Un nouvel emploi du temps remplace les jours qu'il montre, pas les autres.
 - Le podcast dit les cours **du jour** : jusqu'à 4 sont énumérés ; au-delà, il dit combien tu en as et le premier.
-  Le dimanche, il annonce le premier cours de lundi. La phrase est fabriquée par le programme à partir du fichier :
+  Le dimanche, il annonce le premier cours de lundi. **Pas de redites** : un même cours en deux morceaux (le matin et
+  l'après-midi, avec une pause de 2 h 30 au plus) n'est dit qu'une fois (« Lumière de 9 h à 17 h 30 »), et « matin » ou
+  « après-midi » écrits dans le nom d'un cours sont ignorés. **La salle n'est dite que si elle t'apprend quelque chose** :
+  jamais « ma classe » (ce n'est pas un lieu), jamais la salle où se tiennent presque tous tes cours (au moins 70 %, quand
+  au moins trois cours ont une salle) ; une salle différente est dite. `/cours salle jamais` ou `toujours` change ça. La phrase
+  est fabriquée par le programme à partir du fichier :
   les noms de cours ne vont **jamais à Gemini** (ni au tri, ni à l'écriture) ; ils ne vont à Groq que si tu as donné une
   consigne sur la façon de les dire (voir « Tes consignes »). Pour ne plus les entendre : `cours: false` dans la section
   `perso` de `config.yaml`.
 - Un **autre document** (affiche, mot de l'école, ticket…) est lu et rangé dans le journal comme un texte que tu aurais
   écrit… **sans pouvoir donner d'ordres** : un document qui dirait « change ta façon de parler » ne change rien.
 - Pas de PDF pour l'instant : fais-en une capture d'écran.
+
+## Modifier ton emploi du temps et la façon dont il est dit
+
+Tout se fait dans Telegram, sans toucher aux fichiers (le fichier est `memoire/emploi_du_temps.yaml`, mais tu n'as pas
+besoin de l'ouvrir) :
+
+| Je veux… | Je tape… |
+|---|---|
+| Voir ce que le bot a retenu | `/cours` (la semaine, jour par jour) · `/perso demain` (la phrase **telle qu'elle sera dite**, `/perso lundi` pour un autre jour) |
+| Refaire un jour (horaire, nom ou salle faux) | `/cours lundi 9h-17h lumière salle 204` : ça **remplace tout le lundi**, donc écris la journée entière. Plusieurs jours d'un coup avec « ; » |
+| Un jour sans cours | `/cours mardi pas de cours` · `/cours le mercredi et le vendredi : libre` · `/cours pas de cours le week-end` |
+| Une exception pour cette semaine | Ajoute « cette semaine seulement » : `/cours mardi pas de cours cette semaine seulement` |
+| Tout refaire | Une nouvelle photo (elle remplace les jours qu'elle montre, pas les autres) ou `/cours effacer` |
+| Ne plus entendre la salle | `/cours salle jamais` · `/cours salle toujours` · `/cours salle auto` (par défaut : seulement quand elle change) |
+| Changer le ton, l'ordre, le niveau de détail | Dis-le ou écris `/consigne dis mes cours en commençant par l'heure` · `/consignes` pour la liste · `/oublier 2` pour en retirer une |
+
+Ce sont des règles fixes, sans IA : la réponse du bot te redit ce qu'il a compris. Seule la lecture d'un emploi du temps
+**écrit avec des cours** (`/cours lundi 9h-12h étalonnage`) passe par Groq, comme une photo. Quelque chose de bizarre dans
+ce que tu entends ? Tape d'abord `/cours` : c'est ce que le bot a **vraiment** retenu (la lecture d'une photo peut couper un
+cours en deux ou recopier « ma classe » comme salle) ; `/reglages` montre aussi le réglage de la salle.
+
+## Ton document de contexte : qui tu es, ce que tu aimes, comment l'IA doit te parler
+
+C'est **un vrai document organisé**, `memoire/contexte.md`, où tu peux mettre autant d'infos que tu veux sur toi. L'IA le lit
+pour te poser de meilleures questions, écrire un podcast qui te ressemble, choisir tes actus et te parler comme tu l'aimes.
+Tu le **lis et le modifies depuis Telegram**, avec `/moi` (ou en fichier, voir plus bas). Il reste lisible sur GitHub, comme
+le reste de `memoire/`.
+
+Il est livré avec 12 sections prêtes à remplir. Tu peux en ajouter, les renommer ou les supprimer.
+
+| N° | Section | Tu y mets | Qui la lit |
+|---|---|---|---|
+| 1 | **Qui je suis** | ton âge, d'où tu viens, ce que tu fais, ton caractère | 🔒 |
+| 2 | **Mes hobbies et passions** | pêche, jeux vidéo, 3D, cinéma… | 🔒 |
+| 3 | **Mes études et mes projets** | ton école, ce que tu apprends, tes projets en cours | 🔒 |
+| 4 | **Mes goûts** | films, jeux, musique, séries, marques… | 🔒 |
+| 5 | **Les personnes qui comptent** | un prénom, et qui c'est pour toi | 🔒 |
+| 6 | **Mon quotidien** | tes habitudes, le rythme de tes journées, tes trajets | 🔒 |
+| 7 | **Mes objectifs** | où tu veux aller, ce que tu prépares | 🔒 |
+| 8 | **Comment l'IA doit me parler** | ton, tutoiement, humour, longueur des phrases… | 🌐 |
+| 9 | **Sujets qui m'intéressent** | ce que tu veux entendre dans les actus, un sujet par ligne | 🌐 |
+| 10 | **Sujets à éviter** | ce que tu ne veux plus entendre | 🌐 |
+| 11 | **Toujours important pour moi** | ce qui compte même hors de tes centres d'intérêt (transports, école…) | 🌐 |
+| 12 | **Notes libres** | tout le reste | 🔒 |
+
+### 🔒 privé ou 🌐 partagé : qui lit quoi
+
+- **🔒 privé** (c'est le réglage de départ des sections 1 à 7 et 12) : seul **Groq** lit la section (tes questions « Inspi »,
+  le rangement de tes phrases). **Jamais Gemini.**
+- **🌐 partagé** : la section peut aider à **écrire le podcast** (Gemini). Même là, les éléments **sensibles** (santé,
+  argent, politique, religion, sexualité, conflits personnels…) restent privés, un par un. Les sections 8 à 11 sont 🌐
+  d'office, puisqu'elles servent justement au podcast et au choix des actus.
+- Tu changes une section avec `/moi partager hobbies` ou `/moi prive hobbies`. Un `🔒` ou un `🌐` écrit à la main devant
+  le titre dans le fichier est respecté.
+- **`/moi apercu`** te montre, mot pour mot, ce que chaque IA reçoit de ton document. C'est le contrôle à faire quand tu
+  as un doute.
+- La voix du podcast (Gemini TTS) entend le texte final du podcast : si une section 🌐 y est reprise (« tu aimes la pêche »),
+  elle est dans ce texte. Voir « Confidentialité ».
+
+### Le remplir et le corriger, depuis Telegram
+
+| Tu écris | Il se passe |
+|---|---|
+| `/moi` | Le sommaire : les sections, combien d'éléments, 🔒 ou 🌐. La première fois, une petite introduction |
+| `/moi hobbies` (ou `/moi 2`) · `/moi tout` | Une section (par son nom ou son numéro), ou tout le document |
+| `/moi ajouter hobbies : la pêche à la cuillère` | Ajoute un élément. Plusieurs d'un coup : une ligne chacun, ou séparés par `;` |
+| `/moi j'adore le cinéma d'animation` | **Sans dire la section** : Groq (jamais Gemini) choisit où ranger, et te dit où. Ton texte est rangé **tel quel**, jamais réécrit. Groq en panne ? Tout va dans « Notes libres » |
+| « Ajoute à mon contexte que j'adore la pêche » | La même chose, en message ou en vocal. Rien n'entre dans le journal. De même : « Montre-moi mon contexte » (le sommaire) et « Envoie-moi mon document de contexte » (le fichier) |
+| `/moi retirer hobbies 2` · `/moi retirer hobbies pêche` | Retire (par numéro, ou par un bout du texte s'il n'y en a qu'un) |
+| `/moi modifier hobbies 2 : nouveau texte` | Corrige un élément |
+| `/moi deplacer hobbies 2 vers gouts` | Change un élément de section |
+| `/moi section Voyages` · `/moi renommer voyages : Mes voyages` · `/moi supprimer section voyages` | Crée, renomme, supprime une section |
+| `/moi organiser notes` | Groq répartit les notes libres dans les bonnes sections (ce qui est sensible reste privé) |
+| `/moi annuler` | Revient en arrière d'un cran (deux fois de suite : rétablit). L'ancienne version est gardée dans `memoire/contexte.avant.md` |
+| `/moi aide` | Toutes les commandes |
+
+Chaque réponse du bot dit ce qu'il a fait et comment l'annuler. Une section inconnue n'ajoute rien : le bot te montre la liste.
+
+### Ou en fichier, pour écrire tranquillement
+
+`/moi fichier` : le bot t'envoie `contexte.md`. Ouvre-le dans n'importe quel éditeur, écris sous chaque titre `## …` un
+élément par ligne commençant par `- `, puis **renvoie-le dans la conversation** :
+
+- avec la légende `/moi` : le fichier **remplace** le document (l'ancien est gardé : `/moi annuler`) ;
+- avec la légende `/moi ajouter` : il **s'ajoute** à l'existant ;
+- sous le nom `contexte.md`, tel que le bot te l'a envoyé : pas besoin de légende.
+
+Il accepte aussi un `.txt` ou un `.docx` (Word), même mal rangé : des titres comme « Hobbies : » ou en MAJUSCULES, des listes
+numérotées, des tableaux, un long texte… Rien n'est perdu (un long paragraphe est coupé en éléments). Une fois le fichier
+lu, le bot te dit ce qu'il a compris (les sections remplies, celles qui sont 🌐) ; ce n'est pas ce que tu voulais ?
+`/moi annuler`. Un fichier **transféré** d'une autre conversation ne modifie jamais le document.
+Limites : 2 Mo par fichier, 120 000 caractères et 60 sections pour tout le document.
+
+### À quoi ça sert, concrètement
+
+- **Le podcast** (Gemini) reçoit : les sections « libres » (hobbies, goûts…) que tu as passées en 🌐 avec `/moi partager`
+  (hors éléments sensibles, 900 caractères au plus), tes règles de la section 8 (elles s'ajoutent à tes consignes : `/consignes` les montre avec 📖, `/oublier N`
+  les retire aussi du document) et tes sujets des sections 9 à 11 pour **choisir les actus** (`choix.txt` dit alors
+  « ton document de contexte (N sujets) »). Un sujet « à éviter » l'emporte sur un sujet aimé.
+- **Les questions « Inspi »** (Groq seul) : il lit ton document en entier (3 000 caractères au plus) pour te poser des
+  questions sur ce qu'il ne sait pas encore.
+- **Tes infos perso** (cours, anniversaires, rappels) : une règle de la section 8 qui les concerne (« cite mes cours sans la
+  salle ») s'applique comme une consigne : voir « Tes consignes ».
+- **Ce que le journal apprend tout seul** (`memoire/interets.yaml`…) reste à côté et complète le document. Un sujet de
+  « Sujets à éviter » écarte un sujet que le journal avait appris.
+
+Réglages (facultatifs) : section `contexte:` de `config.yaml` (`python3 outils/maj_config_contexte.py` l'ajoute à ton
+fichier) : `dans_podcast: false` empêche tes sections 🌐 libres d'accompagner le podcast, `budget_partage` et `budget_prive`
+fixent les longueurs. Sans cette section, les valeurs ci-dessus s'appliquent.
+
+### À savoir
+
+- **Modifie ton document par Telegram** (`/moi`, `/moi fichier`), pas à la main sur GitHub : le robot écrit aussi dans
+  `memoire/`, et deux modifications au même instant se bousculent (message « Impossible d'enregistrer la mémoire »,
+  voir « Si ça coince » : rien n'est perdu, mais ta modification à la main peut être à refaire).
+- **Rien n'est jamais remplacé par un document vide.** Si le fichier est illisible ou trop gros, le bot te le dit, n'y
+  touche pas, et le podcast s'en passe ce jour-là.
+- **Ce que tu écris ici est stocké en clair** dans ton dépôt privé, comme ton journal : ne le passe jamais en public.
+  Évite d'y mettre des mots de passe ou des numéros de carte.
 
 ## Tes consignes : comment il doit te parler
 
@@ -380,6 +516,8 @@ la retirer avec `/consignes` puis `/oublier N`). Chaque consigne concerne **le p
   politique…) sont marquées 🔒 : elles servent aux questions (Groq seul) mais **ne partent jamais** chez Gemini.
 - Elles ne changent ni la longueur maximale ni le ton positif du podcast.
 - Pour que le podcast ne suive plus aucune consigne : `consignes_dans_podcast: false` (section `perso` de `config.yaml`).
+- Tu peux aussi les écrire dans ton document de contexte, section « Comment l'IA doit me parler » (`/moi parler`) : mêmes
+  effets, et `/consignes` les affiche avec un 📖.
 
 **Pour certains jours seulement.** « Le week-end, parle-moi de façon plus décontractée », « le lundi et le mercredi, va
 droit au but » : la consigne ne sort que ces jours-là (`/consignes` l'affiche : « · le week-end »). Sans jour, elle vaut
@@ -409,6 +547,9 @@ cours sans la salle`). Il répond « concerne : mes infos perso » et le podcast
   À 3 centres d'intérêt, le podcast se met à utiliser ta mémoire à la place de la liste provisoire.
 - Les sujets **sensibles** (santé, argent, politique, religion, sexualité, conflits personnels…) restent dans ta
   mémoire mais **ne servent jamais** à choisir les actus ni ne partent chez Gemini.
+- Ce que tu écris toi-même dans ton document de contexte (section « Sujets qui m'intéressent », « Sujets à éviter »,
+  « Toujours important pour moi ») compte comme ce que le journal a appris ; un sujet de « Sujets à éviter » écarte un sujet
+  appris du même nom.
 - Tu peux toujours forcer les choses dans `moi.yaml` : `epingles` (toujours présents), `toujours_important`,
   `a_ignorer`. Ce que tu écris à la main gagne sur ce que le robot apprend, comme `memoire/anniversaires.yaml` et
   `memoire/rappels.yaml` (le robot écrit dans `*_auto.yaml`, jamais dans tes fichiers).
@@ -423,12 +564,12 @@ cours sans la salle`). Il répond « concerne : mes infos perso » et le podcast
 
 | Service | Ce qu'il voit | Pourquoi / garde-fous |
 |---|---|---|
-| **Groq** | Tes vocaux (le temps de la transcription), le texte de ton journal, **tes images** (le temps de la lecture), tes consignes, et — **seulement si tu as une consigne sur la façon de les dire** — tes phrases perso du jour (cours, prénoms, rappels) | Seul fournisseur IA qui voit ta vie privée. Contrat : pas d'entraînement sur tes données, pas de conservation par défaut ; option « Zero Data Retention » |
-| **Gemini** (Google, offre gratuite) | Des titres d'actus **publics**, les libellés de tes centres d'intérêt **non sensibles** (ex. « Houdini ») et tes consignes de **style** non sensibles | L'offre gratuite peut servir à améliorer les modèles de Google : jamais ton journal, jamais une image, jamais un nom, une date perso, un cours ou un sujet sensible (jamais non plus tes phrases perso reformulées : c'est Groq qui s'en charge) |
-| **Gemini TTS** (la voix du podcast) | Le texte du podcast à lire, **y compris tes lignes perso et tes cours du jour** (« demain, Karim fête ses 21 ans »). Jamais ton journal, ni tes images, ni les questions Inspi | En Europe, Google applique à l'API les conditions des services payants : tes textes ne servent pas à entraîner ses modèles. Si ça te gêne : `max_lignes: 0` et `cours: false` (section `perso`) dans `config.yaml`, ou `/voix homme` (voix Edge) |
+| **Groq** | Tes vocaux (le temps de la transcription), le texte de ton journal, **ton document de contexte** (toutes les sections, 🔒 et 🌐), **tes images** (le temps de la lecture), tes consignes, et — **seulement si tu as une consigne sur la façon de les dire** — tes phrases perso du jour (cours, prénoms, rappels) | Seul fournisseur IA qui voit ta vie privée. Contrat : pas d'entraînement sur tes données, pas de conservation par défaut ; option « Zero Data Retention » |
+| **Gemini** (Google, offre gratuite) | Des titres d'actus **publics**, les libellés de tes centres d'intérêt **non sensibles** (ex. « Houdini »), tes consignes de **style** non sensibles et, de ton document de contexte, **seulement** les éléments non sensibles de tes sections 🌐 (jamais une section 🔒) | L'offre gratuite peut servir à améliorer les modèles de Google : jamais ton journal, jamais une image, jamais un nom, une date perso, un cours ou un sujet sensible (jamais non plus tes phrases perso reformulées : c'est Groq qui s'en charge) |
+| **Gemini TTS** (la voix du podcast) | Le texte du podcast à lire, **y compris tes lignes perso et tes cours du jour** (« demain, Karim fête ses 21 ans ») et ce que l'écriture du podcast a repris de tes sections 🌐. Jamais ton journal, ni tes images, ni les questions Inspi | En Europe, Google applique à l'API les conditions des services payants : tes textes ne servent pas à entraîner ses modèles. Si ça te gêne : `max_lignes: 0` et `cours: false` (section `perso`) dans `config.yaml`, ou `/voix homme` (voix Edge) |
 | **Microsoft Edge TTS** (voix de secours) | Les questions Inspi (toujours) et, si Gemini est indisponible ou choisi par toi, le texte du podcast | Service non officiel et gratuit de Microsoft. Si ça te gêne : `question_vocale: false` (section `journal`) dans `config.yaml` |
 | **Telegram** | Tes messages, tes vocaux, tes photos, le podcast | Les conversations avec un bot ne sont pas chiffrées de bout en bout |
-| **GitHub** (dépôt **privé**) | `memoire/` contient le **texte complet** de ce que tu dis, ton emploi du temps et tes réglages ; la branche `podcast` contient le podcast du jour | **Ne passe jamais le dépôt en public.** L'audio et les images ne sont jamais conservés, seulement le texte |
+| **GitHub** (dépôt **privé**) | `memoire/` contient le **texte complet** de ce que tu dis, ton document de contexte (`contexte.md`), ton emploi du temps et tes réglages ; la branche `podcast` contient le podcast du jour | **Ne passe jamais le dépôt en public.** L'audio et les images ne sont jamais conservés, seulement le texte |
 | **Cloudflare** (la sonnette) | Les deux jetons (GitHub, bot Telegram) que tu lui confies, ton horaire de réveil, le podcast du jour (il passe par elle jusqu'au téléphone) ; elle voit *passer* tes messages en attente dans Telegram | Elle n'en **garde rien** (ni message, ni podcast), n'écrit jamais dans ton dépôt, n'efface jamais un message. Jeton GitHub limité à ce seul dépôt. Les adresses sont secrètes (`SECRET`) |
 
 Le jeton Telegram et les clés n'apparaissent jamais dans les logs. Le contenu de tes messages non plus.
@@ -450,6 +591,8 @@ Le jeton Telegram et les clés n'apparaissent jamais dans les logs. Le contenu d
 - **Cloudflare (offre gratuite)** : 100 000 requêtes par jour (la sonnette en fait ~1 500), un déclencheur toutes les
   minutes, un stockage KV de 1 000 écritures par jour (elle en fait moins de 300 en pratique). Ce sont les limites
   de Cloudflare à ma connaissance, elles peuvent changer : vérifie-les sur leur site.
+- **Ton document de contexte** : 120 000 caractères, 60 sections, 2 Mo par fichier. Ranger tes phrases (`/moi j'adore…`,
+  `/moi organiser`) coûte un appel Groq par 25 phrases ; `/moi ajouter hobbies : …` n'en coûte aucun.
 - Les offres gratuites changent : Groq (<https://console.groq.com/docs/rate-limits>) et Google peuvent modifier leurs
   quotas. Les listes de modèles sont dans `config.yaml` (section `llm`) et modifiables.
 
@@ -468,7 +611,13 @@ Le jeton Telegram et les clés n'apparaissent jamais dans les logs. Le contenu d
 | Le podcast est dit avec la voix de secours (Edge) | Regarde « voix_note » dans `meta.json` (branche `podcast`) ou sous le message Telegram : quota Gemini atteint (réessaie plus tard), clé refusée (secret `GEMINI_API_KEY`), panne. `/voix essai` te dit lesquelles marchent |
 | Le téléphone joue un son bizarre ou rien, et le fichier téléchargé ne fait que ~76 octets | C'est un message d'erreur de la sonnette, pas un son : ouvre `…/status/<SECRET>`, il dit ce qui ne va pas (le plus souvent le jeton `GITHUB_TOKEN` de Cloudflare : expiré, ou sans « Actions : Read and write » + « Contents : Read-only » sur le dépôt) |
 | Un flux d'actus est « EN ÉCHEC » dans `choix.txt` | Supprime sa ligne dans `config.yaml` (section `actu`) s'il l'est depuis plusieurs jours |
+| « ⚠️ Une erreur imprévue m'a empêché de traiter ton dernier message » | Le bot a mis ce message de côté pour ne pas bloquer les suivants (sans cela, il serait relu et ferait planter chaque passage). Renvoie-le. Si ça recommence : *Actions → Journal vocal →* dernier passage, cherche la ligne « Message laissé de côté après une erreur imprévue (type, fichier, ligne) » et envoie-la-moi (elle ne contient jamais ton message) |
+| `/moi` répond « Je n'arrive pas à lire ton document de contexte » | Le fichier `memoire/contexte.md` est illisible (trop long, ou abîmé par une modification à la main). Le bot n'y touche pas : corrige-le sur GitHub, ou renvoie-le avec la légende `/moi` (`/moi fichier` t'envoie la dernière version) |
+| `/moi j'adore…` met tout dans « Notes libres » | Groq n'a pas répondu (quota, panne) : rien n'est perdu, tape `/moi organiser notes` plus tard pour les ranger |
+| Mon document n'a pas l'air pris en compte dans le podcast | `/moi apercu` montre ce que chaque IA reçoit : une section 🔒 ne part pas chez Gemini, un élément sensible reste privé, et `dans_podcast: false` (section `contexte` de `config.yaml`) coupe le tout. Le choix des actus est dans `choix.txt` (« Profil de lecture : ton document de contexte… ») |
+| Je veux revenir à une version précédente de mon document | `/moi annuler` revient d'un cran (la version d'avant est aussi dans `memoire/contexte.avant.md`). Plus loin : sur GitHub, ouvre `memoire/contexte.md` puis **History** |
 | Le vocal est « abandonné » | Format ou fichier illisible : renvoie-le. Après 4 essais, le bot te le dit |
+| Le podcast répète le même cours (matin, après-midi) ou dit « ma classe » à chaque fois | Depuis la v7 le même cours n'est dit qu'une fois et « ma classe » jamais. Si ça arrive encore, tape `/cours` : si le cours apparaît sous deux noms différents (« Lumière » et « Lumière TP »), ou avec plus de 2 h 30 entre les deux morceaux, il est dit deux fois : refais le jour (`/cours lundi 9h-17h lumière`). `/cours salle jamais` coupe la salle. Tu veux comprendre ce qui est dit exactement : `/perso demain` |
 | « Je n'arrive pas à lire cette image » / emploi du temps illisible | Renvoie-le **« en tant que fichier »**, plus net, ou recadre quelques jours. Sinon écris-le : `/cours lundi 9h-12h étalonnage salle 204` |
 | `/podcast` répond « GitHub n'a pas lancé le podcast » | Le workflow `journal.yml` doit avoir `actions: write` (c'est déjà le cas dans la v4 : refais l'étape 0) |
 | `git push` refusé dans Termux | Le robot a écrit entre-temps : `git pull --rebase`, puis `git push` |
@@ -488,7 +637,7 @@ pip install -r requirements.txt
 cp .env.example .env                      # puis colle tes clés dedans
 python -m src.main --no-audio             # texte du podcast + choix des actus, sans audio ni envoi
 python -m src.journal --no-send           # une passe du journal, sans rien écrire dans Telegram
-python -m unittest discover -s tests -t . # ~580 tests hors ligne (faux Telegram / Groq / Gemini / GitHub / flux RSS)
+python -m unittest discover -s tests -t . # ~850 tests hors ligne (faux Telegram / Groq / Gemini / GitHub / flux RSS)
 cd extras/sonnette && node --test         # 166 tests de la sonnette (Node 20 ou plus)
 ```
 
@@ -504,8 +653,9 @@ moi.yaml                       toi pour le podcast : liste provisoire, épingles
 memoire/                       anniversaires.yaml, rappels.yaml (à la main) + tout ce que le journal apprend :
   journal/…                    ce que tu as dit, par jour (lisible sur GitHub)
   faits.jsonl, interets.yaml, anniversaires_auto.yaml, rappels_auto.yaml, questions.jsonl, _etat/
+  contexte.md                  ton document de contexte (/moi)         contexte.avant.md      sa version d'avant (/moi annuler)
   consignes.yaml               tes consignes de comportement          emploi_du_temps.yaml   tes cours
-  reglages.json                ton réveil, la durée/voix/vitesse du podcast, par jour si tu veux (lu aussi par la sonnette)
+  reglages.json                ton réveil, la durée/voix/vitesse du podcast (par jour si tu veux), la salle des cours (lu aussi par la sonnette)
 src/main.py                    podcast : actus → tri → texte → voix → sonnerie → Telegram (+ podcast de secours)
 src/news.py, triage.py         récupère les actus, les note, puis le programme choisit (seuils, plafonds, ton)
 src/script_writer.py, tts.py   écrit le texte parlé (avec tes consignes de style) ; tts.py : Gemini TTS + secours Edge → mp3 ; `python -m src.tts --essai`
@@ -513,12 +663,14 @@ src/jingle.py, garde.py        sonnerie (reveil.mp3, sonnerie.mp3) ; garde-fou d
 src/perso.py, edt.py           anniversaires, rappels et cours du jour, écrits par le programme (sans IA)
 src/perso_style.py             tes consignes sur la façon de les dire : Groq seul reformule, le programme contrôle, repli sur le texte sûr
 src/journal.py                 une passe du journal : Telegram → transcription/vision → mémoire → ordres → questions
+src/contexte.py, moi.py        ton document de contexte (lecture tolérante, sections, 🔒/🌐, annuler) ; les commandes /moi et l'import de fichiers
 src/reglages.py, vision.py     comprendre « mets mon réveil à… » et « 3 min en semaine, 5 le week-end » (règles fixes) ; lire les images (Groq)
 src/telegram.py, github.py, audio.py, stt.py, extract.py, inspi.py, memoire.py, pacer.py   les briques du journal
 src/llm.py                     Gemini / Groq avec repli d'un modèle à l'autre
 extras/sonnette/               la sonnette Cloudflare (worker.js, 166 tests ; Automate ou MacroDroid)
 outils/maj_config_voix.py      met à jour la section voix de ton config.yaml (v5)
 outils/maj_config_perso.py     met à jour la section perso de ton config.yaml (v6, étape 0)
+outils/maj_config_contexte.py  ajoute la section contexte à ton config.yaml (v8, étape 0)
 .github/workflows/podcast.yml  podcast quotidien       .github/workflows/journal.yml  journal toutes les 30 min
 .github/workflows/voix.yml     essai des voix (sur demande : /voix essai)
 tests/                         tests hors ligne
@@ -529,7 +681,8 @@ tests/                         tests hors ligne
 1. **Fait** : actus → tri selon toi → texte → voix → Telegram ; journal vocal ; mémoire ; Inspi ; intérêts appris ;
    podcast de secours ; consignes de comportement ; lecture d'images (emploi du temps) ; réveil réglable par Telegram ;
    sonnette Cloudflare + sonnerie + lecture automatique à l'heure exacte (Automate ou MacroDroid) ; voix réaliste Gemini avec secours Edge ;
-   durée/voix/vitesse et consignes différentes selon les jours ; consignes sur la façon de dire tes cours, anniversaires et rappels.
+   durée/voix/vitesse et consignes différentes selon les jours ; consignes sur la façon de dire tes cours, anniversaires et rappels ;
+   document de contexte (qui tu es, tes hobbies, tes goûts, comment te parler) modifiable depuis Telegram, avec 🔒/🌐.
 2. **Idées** (à ta demande) : « il y a un an, tu me disais… » dans le podcast ; perturbations de transports en Île-de-France
    le matin ; bilan de la semaine le dimanche ; emploi du temps en PDF ; agenda et mails importants (toujours via Groq seul).
 3. **Ta propre voix** : le clonage n'est pas proposé en Europe par Gemini ; une voix « Voice design » sur mesure est possible (voir « Une voix réaliste »).

@@ -16,6 +16,9 @@ spec.loader.exec_module(maj)
 spec_perso = importlib.util.spec_from_file_location("maj_config_perso", ROOT / "outils" / "maj_config_perso.py")
 maj_perso = importlib.util.module_from_spec(spec_perso)
 spec_perso.loader.exec_module(maj_perso)
+spec_contexte = importlib.util.spec_from_file_location("maj_config_contexte", ROOT / "outils" / "maj_config_contexte.py")
+maj_contexte = importlib.util.module_from_spec(spec_contexte)
+spec_contexte.loader.exec_module(maj_contexte)
 
 OLD = '''prenom: Marius
 fuseau: Europe/Paris
@@ -176,6 +179,93 @@ class TestMajConfigPerso(unittest.TestCase):
         self.assertNotIn("style_ia", today)
         new, _ = maj_perso.migrate(today)
         self.assertEqual(new, shipped)
+
+
+CONTEXTE_OLD = '''prenom: Marius
+
+# ----- Infos perso -----
+perso:
+  max_lignes: 6              # mes réglages
+  cours: false
+
+# ----- Réveil : le téléphone joue reveil.mp3 -----
+reveil:
+  sonnerie: true
+'''
+
+
+class TestMajConfigContexte(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.path = self.tmp / "config.yaml"
+
+    def test_one_block_is_added_after_the_perso_section_and_nothing_else_changes(self):
+        new, message = maj_contexte.migrate(CONTEXTE_OLD)
+        before, after = yaml.safe_load(CONTEXTE_OLD), yaml.safe_load(new)
+        self.assertEqual(after.pop("contexte"), maj_contexte.EXPECTED)
+        self.assertEqual(after, before)                                                  # perso (max_lignes: 6, cours: false) et réveil intacts
+        self.assertIn("# mes réglages", new)                                             # les commentaires de l'utilisateur restent
+        self.assertIn("après la section « perso »", message)
+        self.assertLess(new.index("\ncontexte:"), new.index("# ----- Réveil"))
+        self.assertLess(new.index("cours: false"), new.index("\ncontexte:"))
+
+    def test_idempotent(self):
+        once, _ = maj_contexte.migrate(CONTEXTE_OLD)
+        twice, message = maj_contexte.migrate(once)
+        self.assertEqual(once, twice)
+        self.assertIn("déjà à jour", message)
+
+    def test_a_section_the_user_already_has_is_never_touched(self):
+        text = CONTEXTE_OLD + "\ncontexte:\n  dans_podcast: false\n"
+        new, message = maj_contexte.migrate(text)
+        self.assertEqual(new, text)
+        self.assertIn("déjà à jour", message)
+
+    def test_a_commented_out_section_does_not_count(self):
+        new, _ = maj_contexte.migrate(CONTEXTE_OLD + "# contexte:\n")
+        self.assertEqual(yaml.safe_load(new)["contexte"], maj_contexte.EXPECTED)
+
+    def test_perso_at_the_end_of_the_file_without_a_final_newline(self):
+        new, _ = maj_contexte.migrate("prenom: M\nperso:\n  cours: true")
+        self.assertEqual(yaml.safe_load(new), {"prenom": "M", "perso": {"cours": True}, "contexte": maj_contexte.EXPECTED})
+
+    def test_without_a_perso_section_the_block_goes_at_the_end(self):
+        new, message = maj_contexte.migrate("prenom: Marius\n")
+        self.assertEqual(yaml.safe_load(new), {"prenom": "Marius", "contexte": maj_contexte.EXPECTED})
+        self.assertTrue(new.startswith("prenom: Marius\n"))
+        self.assertIn("à la fin", message)
+
+    def test_an_empty_file_gets_the_block(self):
+        new, _ = maj_contexte.migrate("")
+        self.assertEqual(yaml.safe_load(new), {"contexte": maj_contexte.EXPECTED})
+
+    def test_cli_writes_a_backup_and_verifier_changes_nothing(self):
+        self.path.write_text(CONTEXTE_OLD, encoding="utf-8")
+        self.assertEqual(maj_contexte.main(["--config", str(self.path), "--verifier"]), 0)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), CONTEXTE_OLD)
+        self.assertEqual(maj_contexte.main(["--config", str(self.path)]), 0)
+        self.assertEqual(self.path.with_name("config.yaml.avant-contexte").read_text(encoding="utf-8"), CONTEXTE_OLD)
+        self.assertEqual(yaml.safe_load(self.path.read_text(encoding="utf-8"))["contexte"], maj_contexte.EXPECTED)
+        self.assertEqual(maj_contexte.main(["--config", str(self.path)]), 0)                  # relancer ne casse rien
+
+    def test_the_shipped_config_is_already_up_to_date_and_matches_the_tool(self):
+        shipped = (ROOT / "config.yaml").read_text(encoding="utf-8")
+        self.assertEqual(maj_contexte.migrate(shipped)[0], shipped)
+        self.assertIn(maj_contexte.BLOCK, shipped)
+        self.assertEqual(yaml.safe_load(shipped)["contexte"], maj_contexte.EXPECTED)
+
+    def test_the_tool_also_works_on_the_config_as_the_user_has_it_today(self):
+        """Le config.yaml d'avant cette mise à jour (sans section contexte) est complété, sans autre changement."""
+        shipped = (ROOT / "config.yaml").read_text(encoding="utf-8")
+        today = shipped.replace("\n" + maj_contexte.BLOCK, "", 1)
+        self.assertNotIn("contexte:", today)
+        new, _ = maj_contexte.migrate(today)
+        self.assertEqual(new, shipped)
+
+    def test_the_values_in_the_block_are_the_defaults_the_program_uses_without_it(self):
+        from src import contexte
+        self.assertEqual(contexte.budgets({}), (maj_contexte.EXPECTED["budget_partage"], maj_contexte.EXPECTED["budget_prive"]))
 
 
 if __name__ == "__main__":
