@@ -2,8 +2,12 @@
  "version": 1,
  "offset": 176680324,
  "file": [],
- "question_en_attente": null,
- "derniere_question_du_soir": "2026-10-31",
+ "question_en_attente": {
+  "id": "q20261101-2257",
+  "date": "2026-11-01T22:57:45.557183+01:00",
+  "texte": "Ce soir, quel film ou scène t’inspire pour intégrer des effets de compositing dans ton mode Minecraft WID, et comment envisages‑tu de les traduire ?"
+ },
+ "derniere_question_du_soir": "2026-11-01",
  "stt_historique": [
   [
    1793546689.1561193,
