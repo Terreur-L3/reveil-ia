@@ -1,0 +1,43 @@
+Choix du 2026-11-07 — 49 actus examinées
+Profil de lecture : mémoire (26 sujets appris)
+Tri par gemini/gemini-3-flash-preview
+
+RETENUES
+1. [positif] importance 7 · intérêt 10 · score 9.8 — DaVinci Resolve 21.2 Released – PROLED XDR Touch Support, Gen 6 Color Science LUTs, Up to 5x Faster Rendering on M5 Pro and M5 Max (CineD, cinema)
+2. [positif] importance 9 · intérêt 8 · score 9.6 — Une IA a créé des virus pour détruire des bactéries résistantes aux antibiotiques : un patient les a déjà reçus (Futura Sciences, sciences)
+3. [positif] importance 6 · intérêt 10 · score 9.4 — HONOR Magic9 Pro Max First Look – ARRI Color Science at a Fraction of the Price (CineD, cinema)
+4. [positif] importance 7 · intérêt 9 · score 9.2 — Déjà dans le top du classement VR : l’irrésistible montée en puissance du Steam Frame (Réalité-Virtuelle, vr)
+5. [positif] importance 8 · intérêt 7 · score 8.6 — SpaceX va tenter de rattraper Starship avec deux bras géants : une manœuvre aussi spectaculaire que risquée (Futura Sciences, sciences)
+
+ÉCARTÉES (les mieux notées)
+- importance 6 · intérêt 10 — How “You Can See Everything” Was Shot – No Lights, Three Cameras, and a Day of Getting It Wrong (CineD) → au-delà de 5 sujets
+- importance 7 · intérêt 9 — Google, Microsoft, Anthropic et OpenAI veulent changer robots.txt pour refuser les IA (Next) → au-delà de 5 sujets
+- importance 6 · intérêt 9 — Abandonnée pendant 30 heures, cette IA s'est mise à créer des jeux vidéo pour s'occuper (jeuxvideo.com) → au-delà de 5 sujets
+- importance 5 · intérêt 9 — How VALORANT's Hush Was Animated Using Spine 2D & After Effects (80 Level) → au-delà de 5 sujets
+- importance 8 · intérêt 7 — À bord de sa station spatiale, la Chine frôle le zéro absolu et bat un record du monde (Numerama) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Quest's Latest PTC Brings Streamlined OS Interface & Theater Environment (UploadVR) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Comment activer XeSS et sa génération de frames en x4 dans vos jeux Linux (Korben) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Casques VR : cette mise à jour Steam Link rend vos jeux plus beaux que jamais (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 6 · intérêt 8 — Samsung Galaxy XR vs Meta Quest Pro : anatomie comparée de deux générations d’immersion (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Is The New York Times Buying Letterboxd? (No Film School) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Lee Chang-dong, cinéaste sud-coréen : « Les gens vivent avec un sentiment de vide. C’est pour ça qu’il y a une colère qui s’exprime » (Le Monde) → au-delà de 5 sujets
+- importance 8 · intérêt 5 — "On ne va pas tenir encore beaucoup de samedis", prévient un délégué national Unsa Police alors que les manifestations de "l'acte IV" commencent (franceinfo) → au-delà de 5 sujets
+
+SOURCES
+- franceinfo : 27 récents (sur 28)
+- Le Monde : 16 récents (sur 16)
+- Futura Sciences : 27 récents (sur 50)
+- Good News Network : 7 récents (sur 50)
+- Positive News : 1 récents (sur 10)
+- Numerama : 15 récents (sur 15)
+- Next : 15 récents (sur 50)
+- Korben : 2 récents (sur 16)
+- No Film School : 13 récents (sur 30)
+- CineD : 5 récents (sur 20)
+- ProVideo Coalition : aucun article récent (sur 10)
+- Blender : aucun article récent (sur 9)
+- 80 Level : 10 récents (sur 10)
+- Road to VR : 1 récents (sur 10)
+- UploadVR : 1 récents (sur 64)
+- Réalité-Virtuelle : 6 récents (sur 15)
+- jeuxvideo.com : 19 récents (sur 20)
