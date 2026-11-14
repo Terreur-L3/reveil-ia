@@ -1,0 +1,43 @@
+Choix du 2026-11-14 — 51 actus examinées
+Profil de lecture : mémoire (26 sujets appris)
+Tri par gemini/gemini-3-flash-preview
+
+RETENUES
+1. [positif] importance 5 · intérêt 10 · score 9.0 — How 'Project Hail Mary' Brought Rocky to Life (No Film School, cinema)
+2. [positif] importance 5 · intérêt 10 · score 9.0 — ARRI Publishes Legacy Analog Camera Archive – ARRIFLEX 35, 16SR and 416 Manuals, Brochures and Specs Online (CineD, cinema)
+3. [positif] importance 6 · intérêt 9 · score 8.8 — Agent-desktop pilote vos applis sans regarder l'écran (Korben, tech)
+4. [positif] importance 6 · intérêt 9 · score 8.8 — Blackmagic Announces Ambisonic Microphone for Immersive Audio on Apple Vision Pro (Road to VR, vr)
+5. [positif] importance 7 · intérêt 8 · score 8.6 — Nvidia CloudXR : le streaming XR qui libère enfin les casques VR ? (Réalité-Virtuelle, vr)
+
+ÉCARTÉES (les mieux notées)
+- importance 9 · intérêt 5 — Fusion nucléaire : des physiciens trouvent un raccourci pour atteindre l'allumage en consommant moins d'énergie (Futura Sciences) → au-delà de 5 sujets
+- importance 5 · intérêt 9 — Nikon Z30 Wonder Lantern Mod Adds Higher Bitrates – 200 Mbps 4K, 25-Minute Slow Motion, Photo Zebras (CineD) → au-delà de 5 sujets
+- importance 7 · intérêt 9 — Robotique et réalité mixte : architectures, applications et défis de l’interface spatiale industrielle (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 4 · intérêt 9 — Vivecraft sur Minecraft Java, le projet VR qui change complètement la façon de jouer (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 9 · intérêt 2 — EN DIRECT, guerre en Ukraine : Volodymyr Zelensky affirme que les Etats-Unis ont évoqué des concessions territoriales en échange d’une adhésion à l’OTAN (Le Monde) → au-delà de 5 sujets
+- importance 2 · intérêt 8 — Master Hard-Surface Weapon Creation in Blender with This Course (80 Level) → ignoré (hors sujet ou sans intérêt)
+- importance 5 · intérêt 8 — Stela - Le retour du Hackintosh ? (Korben) → au-delà de 5 sujets
+- importance 8 · intérêt 4 — Aucune sonde n’a jamais été aussi loin dans le cosmos : Voyager 1 arrive à un jour lumière de la Terre, et la NASA lance un jeu (Numerama) → au-delà de 5 sujets
+- importance 8 · intérêt 2 — Une alerte rarissime cloue tous les avions au sol aux États-Unis (Next) → au-delà de 5 sujets
+- importance 4 · intérêt 7 — Bad Interview Audio? Premiere Can Fix That. (No Film School) → doublon (même histoire)
+- importance 7 · intérêt 6 — Panne géante : Microsoft balaie la théorie d’un agent IA qui aurait dérapé (Numerama) → doublon (même histoire)
+- importance 7 · intérêt 6 — ☕️ [MàJ] Outlook, Teams : les services Microsoft reviennent au bout de 20 heures (Next) → au-delà de 5 sujets
+
+SOURCES
+- franceinfo : 30 récents (sur 30)
+- Le Monde : 16 récents (sur 16)
+- Futura Sciences : 25 récents (sur 50)
+- Good News Network : 7 récents (sur 50)
+- Positive News : EN ÉCHEC (HTTP 403)
+- Numerama : 15 récents (sur 15)
+- Next : 15 récents (sur 50)
+- Korben : 2 récents (sur 18)
+- No Film School : 12 récents (sur 30)
+- CineD : 3 récents (sur 20)
+- ProVideo Coalition : 1 récents (sur 10)
+- Blender : aucun article récent (sur 9)
+- 80 Level : 10 récents (sur 10)
+- Road to VR : 2 récents (sur 10)
+- UploadVR : 3 récents (sur 64)
+- Réalité-Virtuelle : 10 récents (sur 15)
+- jeuxvideo.com : 20 récents (sur 20)
