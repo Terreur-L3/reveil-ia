@@ -1,0 +1,43 @@
+Choix du 2026-11-21 — 55 actus examinées
+Profil de lecture : mémoire (26 sujets appris)
+Tri par gemini/gemini-3-flash-preview
+
+RETENUES
+1. [positif] importance 9 · intérêt 8 · score 10.1 — Un mathématicien annonce la résolution de l'hypothèse de Riemann, l'un des plus célèbres problèmes du monde, avec l'aide d'une IA d'Anthropic (franceinfo, general)
+2. [positif] importance 4 · intérêt 10 · score 8.6 — Auto Levels – a free script for color grading in After Effects (ProVideo Coalition, cinema)
+3. [neutre] importance 8 · intérêt 9 · score 8.6 — Une conférence de l'ONU ouvre à la voie à un possible encadrement international des "robots tueurs" (franceinfo, general)
+4. [positif] importance 6 · intérêt 8 · score 8.2 — Signal bloque les captures pour tenir Gemini et Siri à distance (Korben, tech)
+5. [positif] importance 6 · intérêt 7 · score 8.1 — GTA 6 is Officially the Biggest Entertainment Launch in History (80 Level, 3d)
+
+ÉCARTÉES (les mieux notées)
+- importance 5 · intérêt 10 — C++ dans Unreal Engine : architecture, gestion mémoire et bonnes pratiques (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 0 · intérêt 9 — DZOFILM Black Friday 2026 – 7th Anniversary Sale with Up to 38% Off, Arcana Kit Deal and New Education Kits (CineD) → ignoré (hors sujet ou sans intérêt)
+- importance 9 · intérêt 8 — L’humain contre-attaque sur l’hypothèse de Riemann : un chercheur aurait craqué l’énigme avant l’IA Claude (Numerama) → doublon (même histoire)
+- importance 4 · intérêt 9 — KONDOR BLUE and Markiplier Launch GoPro MISSION 1 Cage Ecosystem – Media I/O Hub, NP-F Power Grip, Dual NATO Rails (CineD) → au-delà de 5 sujets
+- importance 6 · intérêt 9 — PHP2Shell : les mises à jour avancent trop lentement (Next) → au-delà de 5 sujets
+- importance 0 · intérêt 8 — NANLITE Black Friday Deals 2026 – Save Up to 25% on Lighting (CineD) → ignoré (hors sujet ou sans intérêt)
+- importance 4 · intérêt 8 — You Can Now Rent & Buy 3D Movies on Quest (Road to VR) → doublon (même histoire)
+- importance 4 · intérêt 8 — Quest Gets 3D Movie Rentals & Purchases In The US, Including Billie Eilish Concert Film (UploadVR) → au-delà de 5 sujets
+- importance 5 · intérêt 8 — Pico Space Pro : la sortie de ce casque VR haut de gamme approche, faut-il s’y intéresser ? (Réalité-Virtuelle) → au-delà de 5 sujets
+- importance 7 · intérêt 8 — ARTEX, l'IA de piratage open source qui a figé la Commission européenne (Korben) → au-delà de 5 sujets
+- importance 8 · intérêt 7 — La Bourse de Wall Street enregistre des centaines de milliards de dollars de pertes, pénalisée par le secteur de l'IA (franceinfo) → au-delà de 5 sujets
+- importance 4 · intérêt 8 — The Shape of Dread – Different Forms a Suspense Curve Can Take (CineD) → au-delà de 5 sujets
+
+SOURCES
+- franceinfo : 27 récents (sur 27)
+- Le Monde : 15 récents (sur 16)
+- Futura Sciences : 38 récents (sur 50)
+- Good News Network : 7 récents (sur 50)
+- Positive News : EN ÉCHEC (HTTP 403)
+- Numerama : 15 récents (sur 15)
+- Next : 12 récents (sur 50)
+- Korben : 6 récents (sur 21)
+- No Film School : 12 récents (sur 30)
+- CineD : 7 récents (sur 20)
+- ProVideo Coalition : 1 récents (sur 10)
+- Blender : aucun article récent (sur 9)
+- 80 Level : 10 récents (sur 10)
+- Road to VR : 4 récents (sur 10)
+- UploadVR : 2 récents (sur 64)
+- Réalité-Virtuelle : 5 récents (sur 15)
+- jeuxvideo.com : 20 récents (sur 20)
