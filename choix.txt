@@ -1,0 +1,43 @@
+Choix du 2026-11-27 — 52 actus examinées
+Profil de lecture : mémoire (26 sujets appris)
+Tri par gemini/gemini-3-flash-preview
+
+RETENUES
+1. [positif] importance 5 · intérêt 10 · score 9.5 — Recreating the Scale Model Look of a Rally Diorama in Houdini (80 Level, 3d)
+2. [positif] importance 5 · intérêt 9 · score 8.4 — Sony FX5 Now Netflix Approved – Recommended Settings, Dual Gain Limits and the Super 35 Catch (CineD, cinema)
+3. [positif] importance 6 · intérêt 8 · score 8.2 — FLiPP technology: next-gen OLED monitors will be cheaper, last longer (ProVideo Coalition, cinema)
+4. [positif] importance 4 · intérêt 9 · score 8.0 — Il a greffé un cerveau de drone sur sa tondeuse RC (Korben, tech)
+5. [neutre] importance 5 · intérêt 7 · score 6.7 — Ubisoft mise sur l’IA pour tester plus vite ses idées de jeux (Next, tech)
+
+ÉCARTÉES (les mieux notées)
+- importance 4 · intérêt 9 — Here’s Yet Another Film Emulation Plugin to Spice Up Your Grades in Your Favorite Editors (No Film School) → doublon (même histoire)
+- importance 4 · intérêt 9 — Turning Whimsical 2D Town Into Cozy 3D World (80 Level) → doublon (même histoire)
+- importance 5 · intérêt 8 — Nikon ZR Firmware 2.0 Finally Out + FUJIFILM GFX ETERNA 55 Now Under $10,000 – Focus Check ep144 (CineD) → doublon (même histoire)
+- importance 5 · intérêt 8 — Panasonic LUMIX SHX1 Global Rollout – Europe From December 2026, US and Japan From January 2027 (CineD) → doublon (même histoire)
+- importance 4 · intérêt 8 — Thypoch Sculptor AF 23mm f/1.4 Launched – Compact All-Metal Autofocus Prime for FUJIFILM X (CineD) → doublon (même histoire)
+- importance 8 · intérêt 2 — EN DIRECT, guerre en Ukraine : suivez nos dernières informations (Le Monde) → au-delà de 5 sujets
+- importance 7 · intérêt 2 — Le 22 juillet 2024, la Terre connaît sa journée la plus chaude jamais mesurée : deux ans plus tard, les chercheurs mettent en cause l'Antarctique (Futura Sciences) → au-delà de 5 sujets
+- importance 7 · intérêt 2 — Les discussions sur le budget de l’Union européenne menacées par les échéances électorales françaises (Le Monde) → au-delà de 5 sujets
+- importance 4 · intérêt 6 — VR Design Unpacked: This 2019 Game Still Sets the Bar for Open World VR (Road to VR) → doublon (même histoire)
+- importance 4 · intérêt 6 — Apple Vision Pro : on a assisté au défilé GucciCore à Times Square (et voici ce qui coince) (Réalité-Virtuelle) → doublon (même histoire)
+- importance 4 · intérêt 6 — Intelligence artificielle : quand les salariés se mettent à parler comme des robots pour satisfaire leur employeur (franceinfo) → doublon (même histoire)
+- importance 4 · intérêt 6 — Virtual Desktop se met à jour : nouveau décor new-yorkais et performances assainies sur Quest 3 (Réalité-Virtuelle) → sous les seuils d'importance et d'intérêt
+
+SOURCES
+- franceinfo : 30 récents (sur 31)
+- Le Monde : 16 récents (sur 16)
+- Futura Sciences : 27 récents (sur 50)
+- Good News Network : 5 récents (sur 50)
+- Positive News : EN ÉCHEC (HTTP 403)
+- Numerama : 15 récents (sur 15)
+- Next : 16 récents (sur 50)
+- Korben : 2 récents (sur 37)
+- No Film School : 8 récents (sur 30)
+- CineD : 5 récents (sur 20)
+- ProVideo Coalition : 2 récents (sur 10)
+- Blender : aucun article récent (sur 9)
+- 80 Level : 10 récents (sur 10)
+- Road to VR : 1 récents (sur 10)
+- UploadVR : 3 récents (sur 64)
+- Réalité-Virtuelle : 10 récents (sur 15)
+- jeuxvideo.com : 16 récents (sur 20)
